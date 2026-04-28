@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: expoair-api
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: GOOGLE_MAPS_API_KEY
+        sync: false
+      - key: OPENAQ_API_KEY
+        sync: false
+      - key: FIREBASE_CREDENTIALS_PATH
+        value: /etc/secrets/firebase_creds.json
+      - key: PORT
+        value: 8000
