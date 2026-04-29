@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import pydeck as pdk
 import random
 from components.sidebar import render_sidebar
 from services.data_fetcher import fetch_live_data
@@ -25,8 +26,7 @@ except Exception as e:
     # Provide fallback dummy data matching the expected structure
     data = {"station_count": 8}
 
-st.info("3D Map view loading...")
-st.container(height=500, border=True)
+st.info("3D Map view loaded.")
 
 # Station Map Data Expander
 st.subheader("Station Data")
@@ -37,9 +37,46 @@ for i in range(data.get("station_count", 8)):
         "AQI": random.randint(40, 180),
         "PM2.5": round(random.uniform(15.0, 90.0), 1),
         "PM10": round(random.uniform(40.0, 150.0), 1),
+        "lat": 18.5204 + random.uniform(-0.1, 0.1),
+        "lon": 73.8567 + random.uniform(-0.1, 0.1),
         "Status": "Online"
     })
 df_grid = pd.DataFrame(grid_data)
+
+def get_color(aqi):
+    if aqi < 50: return [27, 94, 32, 200]
+    elif aqi <= 100: return [130, 119, 23, 200]
+    elif aqi <= 150: return [230, 81, 0, 200]
+    else: return [183, 28, 28, 200]
+
+df_grid['color'] = df_grid['AQI'].apply(get_color)
+
+layer = pdk.Layer(
+    "ColumnLayer",
+    data=df_grid,
+    get_position=["lon", "lat"],
+    get_elevation="AQI",
+    elevation_scale=50,
+    radius=500,
+    get_fill_color="color",
+    pickable=True,
+    auto_highlight=True,
+)
+
+view_state = pdk.ViewState(
+    latitude=18.5204,
+    longitude=73.8567,
+    zoom=10,
+    pitch=45,
+    bearing=15,
+)
+
+st.pydeck_chart(pdk.Deck(
+    map_style=None,
+    initial_view_state=view_state,
+    layers=[layer],
+    tooltip={"text": "{Station ID}\nAQI: {AQI}"}
+))
 
 def color_aqi(val):
     if val < 50: return 'background-color: #1b5e20; color: white;'     # Dark green
