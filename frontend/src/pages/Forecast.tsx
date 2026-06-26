@@ -1,26 +1,23 @@
 import React, { useState, useEffect } from "react";
 import { apiService } from "../services/api";
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
-import { Sliders, HelpCircle, AlertCircle, BarChart2, CheckCircle2 } from "lucide-react";
+import { Sliders, CheckCircle2 } from "lucide-react";
 
 export const Forecast: React.FC = () => {
   const [forecastData, setForecastData] = useState<any>(null);
-  const [loading, setLoading] = useState<boolean>(true);
   
   // SHAP Interactive overrides
   const [pm25Slider, setPm25Slider] = useState<number>(45);
   const [windSlider, setWindSlider] = useState<number>(6.5);
   const [tempSlider, setTempSlider] = useState<number>(27);
-  const [humiditySlider, setHumiditySlider] = useState<number>(55);
+  const humiditySlider = 55;
   
   const [selectedModel, setSelectedModel] = useState<string>("LSTM Sequence Model");
 
   const loadForecast = async (customFeatures?: any) => {
-    setLoading(true);
     // Pune coordinates
     const data = await apiService.getForecast(28.63, 77.22, customFeatures);
     setForecastData(data);
-    setLoading(false);
   };
 
   useEffect(() => {

@@ -1,15 +1,14 @@
 import React, { useState, useEffect, useRef } from "react";
 import { apiService } from "../services/api";
-import { Crosshair, MapPin, Eye, Settings, RefreshCw, Info } from "lucide-react";
+import { Crosshair, MapPin, RefreshCw } from "lucide-react";
 
 export const LiveMap: React.FC = () => {
   const [heatmapData, setHeatmapData] = useState<any[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [selectedPoint, setSelectedPoint] = useState<any>(null);
-  const [hoveredPoint, setHoveredPoint] = useState<any>(null);
   
   // Grid location (default Pune / Anand Vihar area coords)
-  const [mapCenter, setMapCenter] = useState({ lat: 28.63, lng: 77.22 });
+  const mapCenter = { lat: 28.63, lng: 77.22 };
   
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 

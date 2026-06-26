@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { apiService } from "../services/api";
-import { Wind, ShieldCheck, Route, Eye, HeartPulse, BrainCircuit, ArrowRight } from "lucide-react";
+import { Wind, Route, HeartPulse, BrainCircuit, ArrowRight } from "lucide-react";
 
 interface LandingProps {
   setCurrentPage: (page: string) => void;

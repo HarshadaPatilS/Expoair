@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { 
   LayoutDashboard, Map, TrendingUp, Activity, User, Route, 
-  MessageSquare, BarChart3, ShieldAlert, Sun, Moon, LogOut, LogIn, Menu, X, Wind
+  MessageSquare, BarChart3, ShieldAlert, Sun, Moon, LogOut, LogIn, Menu, Wind
 } from "lucide-react";
 
 interface MainLayoutProps {
