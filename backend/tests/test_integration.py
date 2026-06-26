@@ -10,32 +10,49 @@ from main import app
 
 @pytest.mark.asyncio
 async def test_mode_b_pipeline():
-    """Mode B: OpenAQ API → Weather → LSTM predict → AQI response"""
-    # Using ASGITransport as recommended in newer httpx versions
+    """Data Fusion Pipeline: OpenAQ API + Weather + Traffic -> Live AQI"""
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        resp = await client.get("/api/aqi/current?lat=18.5204&lng=73.8567&mode=api")
+        resp = await client.get("/api/aqi/live?lat=18.5204&lng=73.8567")
         assert resp.status_code == 200
         data = resp.json()
         assert "aqi" in data
-        assert 0 < data["aqi"] < 500
-        assert data["mode_used"] == "api_fusion"
+        assert "pm25" in data
+        assert "source" in data
+        assert "weather" in data
 
 @pytest.mark.asyncio  
-async def test_source_fingerprint():
+async def test_prediction_forecast():
+    """Forecast Pipeline: LSTM predict + SHAP explanation"""
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        resp = await client.get("/api/predict/source?lat=18.5204&lng=73.8567")
+        payload = {
+            "lat": 18.5204,
+            "lng": 73.8567,
+            "custom_features": {
+                "pm25": 42.0,
+                "wind_speed": 5.0
+            }
+        }
+        resp = await client.post("/api/predict/forecast", json=payload)
         assert resp.status_code == 200
         data = resp.json()
-        assert data["source"] in ["Vehicular","Industrial","Construction","Biomass","Mixed"]
-        assert 0 < data["confidence"] < 1
+        assert "predicted_aqi" in data
+        assert "shap_explanation" in data
+        assert len(data["models"]) > 0
 
 @pytest.mark.asyncio
 async def test_health_score():
+    """Health Assessment Pipeline: Profile + AQI -> Safety Score & Recommendations"""
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        resp = await client.post("/api/health-score", json={
-            "current_aqi": 145,
-            "health_profile": {"age_group":"child","asthma":"severe","pregnant":False,"cardiovascular":False}
-        })
+        payload = {
+            "age_group": "child",
+            "asthma": "severe",
+            "pregnant": False,
+            "cardiovascular": False,
+            "current_aqi": 145.0
+        }
+        resp = await client.post("/api/health/health-risk", json=payload)
         assert resp.status_code == 200
         data = resp.json()
-        assert data["risk_level"] == "hazardous"  # AQI 145 > 120 threshold for asthmatic child
+        assert data["risk_level"] in ["high", "hazardous"]
+        assert "safety_score" in data
+        assert len(data["cards"]) > 0

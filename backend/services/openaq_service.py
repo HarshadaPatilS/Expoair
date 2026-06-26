@@ -150,11 +150,15 @@ class OpenAQService:
         
         pollutants = {}
         if latest and len(latest) > 0:
-            measurements = latest[0].get("results", []) # Usually in results array
-            # Handle if latest endpoint returns list of measurements directly
             if isinstance(latest, list):
-                # sometimes /latest returns array of parameters
-                measurements = latest
+                if isinstance(latest[0], dict) and "results" in latest[0]:
+                    measurements = latest[0].get("results", [])
+                else:
+                    measurements = latest
+            elif isinstance(latest, dict):
+                measurements = latest.get("results", [])
+            else:
+                measurements = []
             
             for m in measurements:
                 param = str(m.get("parameter", "")).upper()

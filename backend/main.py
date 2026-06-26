@@ -23,6 +23,16 @@ from services.ml_service import MLService
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info(f"AirSense AI backend starting on port {PORT}")
+    
+    # Auto-initialize database tables on startup
+    try:
+        from database.connection import engine, Base
+        import database.schema  # ensure models are registered
+        Base.metadata.create_all(bind=engine)
+        logger.info("Database tables initialized successfully on startup.")
+    except Exception as e:
+        logger.error(f"Failed to initialize database tables: {e}")
+
     # Initialize machine learning models
     try:
         MLService.initialize()

@@ -22,11 +22,39 @@ class MLService:
         scaler_path = os.path.join(models_dir, "scaler.pkl")
         meta_path = os.path.join(models_dir, "fingerprinter_meta.json")
         
-        # Load LSTM
+        # Load LSTM with TensorFlow process safety checks
         try:
-            from tensorflow.keras.models import load_model # lazy load to keep startup light if it fails
-            cls._lstm_model = load_model(lstm_path)
-            logger.info("MLService: Loaded LSTM sequence model.")
+            import subprocess
+            import sys
+            
+            tf_ok = False
+            try:
+                # Test if tensorflow imports without crashing the process (Access Violation 0xC0000005)
+                res = subprocess.run(
+                    [sys.executable, "-c", "import tensorflow"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=5
+                )
+                if res.returncode == 0:
+                    tf_ok = True
+                else:
+                    logger.warning(f"MLService: TensorFlow test import exited with code {res.returncode}. Skipping to avoid process crash.")
+            except Exception as subprocess_err:
+                logger.warning(f"MLService: TensorFlow test subprocess failed: {subprocess_err}")
+                
+            if tf_ok:
+                # Try loading .keras if .h5 doesn't exist, and vice versa
+                if not os.path.exists(lstm_path) and os.path.exists(lstm_path.replace(".h5", ".keras")):
+                    lstm_path = lstm_path.replace(".h5", ".keras")
+                elif not os.path.exists(lstm_path) and os.path.exists(lstm_path.replace(".keras", ".h5")):
+                    lstm_path = lstm_path.replace(".keras", ".h5")
+                
+                from tensorflow.keras.models import load_model
+                cls._lstm_model = load_model(lstm_path)
+                logger.info(f"MLService: Loaded LSTM sequence model from {lstm_path}.")
+            else:
+                logger.warning("MLService: TensorFlow is not functional on this platform. Using rule-based fallback.")
         except Exception as e:
             logger.warning(f"MLService: Failed to load LSTM model ({e}). Using rule-based fallback.")
             

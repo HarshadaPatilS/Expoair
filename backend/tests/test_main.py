@@ -9,7 +9,11 @@ async def test_read_root():
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.get("/")
     assert response.status_code == 200
-    assert response.json() == {"status": "ExpoAir API running", "version": "1.0.0", "docs": "/docs"}
+    assert response.json() == {
+        "status": "AirSense AI EDSS API running",
+        "version": "2.0.0",
+        "documentation": "/docs"
+    }
 
 @pytest.mark.asyncio
 async def test_ping():
