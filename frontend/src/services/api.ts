@@ -53,10 +53,10 @@ export const apiService = {
       return await request<any[]>("/aqi/stations");
     } catch {
       return [
-        { id: 1, name: "Anand Vihar Environmental Station", latitude: 28.6476, longitude: 77.3158 },
-        { id: 2, name: "DTU Campus Air Lab", latitude: 28.7501, longitude: 77.1176 },
-        { id: 3, name: "Pusa Environmental Observatory", latitude: 28.6358, longitude: 77.1524 },
-        { id: 4, name: "Dwarka Sector 8 Station", latitude: 28.5704, longitude: 77.0658 }
+        { id: 1, name: "Sinhgad Institute IoT Station (Lonavala)", latitude: 18.7530, longitude: 73.4063 },
+        { id: 2, name: "Pune Central Environmental Hub", latitude: 18.5204, longitude: 73.8567 },
+        { id: 3, name: "Pimpri-Chinchwad PCMC Station", latitude: 18.6298, longitude: 73.7997 },
+        { id: 4, name: "Hinjewadi IT Park Monitor", latitude: 18.5912, longitude: 73.7389 }
       ];
     }
   },

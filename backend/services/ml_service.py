@@ -34,7 +34,7 @@ class MLService:
                     [sys.executable, "-c", "import tensorflow"],
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
-                    timeout=5
+                    timeout=15
                 )
                 if res.returncode == 0:
                     tf_ok = True

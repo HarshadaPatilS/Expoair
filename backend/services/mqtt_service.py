@@ -76,7 +76,11 @@ class MQTTService:
         logger.info("MQTT Subscriber thread started.")
         
         # Set up paho client
-        self.client = mqtt.Client(client_id="ExpoAirBackendSub", clean_session=True)
+        try:
+            self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION1, client_id="ExpoAirBackendSub", clean_session=True)
+        except AttributeError:
+            # Older paho-mqtt (<= 1.6.x) does not have CallbackAPIVersion
+            self.client = mqtt.Client(client_id="ExpoAirBackendSub", clean_session=True)
         self.client.username_pw_set(MQTT_USER, MQTT_PASS)
         
         # Enable TLS since HiveMQ Cloud requires port 8883 TLS

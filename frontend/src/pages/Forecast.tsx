@@ -15,8 +15,8 @@ export const Forecast: React.FC = () => {
   const [selectedModel, setSelectedModel] = useState<string>("LSTM Sequence Model");
 
   const loadForecast = async (customFeatures?: any) => {
-    // Pune coordinates
-    const data = await apiService.getForecast(28.63, 77.22, customFeatures);
+    // Lonavala / Sinhgad Institute coordinates (paper deployment site)
+    const data = await apiService.getForecast(18.7530, 73.4063, customFeatures);
     setForecastData(data);
   };
 

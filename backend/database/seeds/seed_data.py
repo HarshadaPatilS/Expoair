@@ -42,11 +42,11 @@ def seed_db():
             
         # 2. Seed Stations
         stations_data = [
-            {"name": "Anand Vihar Environmental Station", "latitude": 28.6476, "longitude": 77.3158},
-            {"name": "DTU Campus Air Lab", "latitude": 28.7501, "longitude": 77.1176},
-            {"name": "Pusa Environmental Observatory", "latitude": 28.6358, "longitude": 77.1524},
-            {"name": "Dwarka Sector 8 Station", "latitude": 28.5704, "longitude": 77.0658},
-            {"name": "ESP32 IoT Sensing Node (Live)", "latitude": 28.6219, "longitude": 77.2188}
+            {"name": "Sinhgad Institute IoT Station (Lonavala)", "latitude": 18.7530, "longitude": 73.4063},
+            {"name": "Pune Central Environmental Hub",           "latitude": 18.5204, "longitude": 73.8567},
+            {"name": "Pimpri-Chinchwad PCMC Station",           "latitude": 18.6298, "longitude": 73.7997},
+            {"name": "Hinjewadi IT Park Monitor",               "latitude": 18.5912, "longitude": 73.7389},
+            {"name": "ESP32 IoT Sensing Node (Live)",           "latitude": 18.7530, "longitude": 73.4063}
         ]
         
         station_objects = []
@@ -99,7 +99,7 @@ def seed_db():
                 diurnal_factor = 1.0 + 0.3 * random.uniform(0.7, 1.3) if hour in [8, 9, 10, 18, 19, 20, 21] else 0.8 * random.uniform(0.8, 1.2)
                 
                 # Different stations have different pollution profiles
-                station_base = 150 if "Anand Vihar" in station.name else 70
+                station_base = 80 if "Lonavala" in station.name or "Sinhgad" in station.name else 60
                 pm25 = station_base * diurnal_factor + random.uniform(-10, 15)
                 pm25 = max(5.0, pm25)
                 
