@@ -38,7 +38,27 @@ async def lifespan(app: FastAPI):
         MLService.initialize()
     except Exception as e:
         logger.error(f"Failed to initialize MLService: {e}")
+
+    # Initialize and start MQTT Service & Telemetry Simulator
+    try:
+        from services.mqtt_service import MQTTService
+        mqtt_service = MQTTService()
+        mqtt_service.start()
+        logger.info("MQTT service started successfully on startup.")
+    except Exception as e:
+        logger.error(f"Failed to initialize or start MQTTService: {e}")
+        
     yield
+    
+    # Stop MQTT Service
+    try:
+        from services.mqtt_service import MQTTService
+        mqtt_service = MQTTService()
+        mqtt_service.stop()
+        logger.info("MQTT service stopped successfully on shutdown.")
+    except Exception as e:
+        logger.error(f"Failed to stop MQTTService on shutdown: {e}")
+        
     logger.info("AirSense AI backend shutting down")
 
 app = FastAPI(
@@ -74,6 +94,7 @@ from api.exposure import router as exposure_router
 from api.routes import router as routes_router
 from api.chat import router as chat_router
 from api.maps import router as maps_router
+from api.admin import router as admin_router
 
 # Include routers
 app.include_router(auth_router, prefix="/api")
@@ -84,6 +105,7 @@ app.include_router(exposure_router, prefix="/api")
 app.include_router(routes_router, prefix="/api")
 app.include_router(chat_router, prefix="/api")
 app.include_router(maps_router, prefix="/api")
+app.include_router(admin_router, prefix="/api")
 
 @app.get("/")
 def read_root():

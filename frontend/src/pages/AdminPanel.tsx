@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { Database, Cpu, RefreshCw, Terminal } from "lucide-react";
+import { apiService } from "../services/api";
 
 export const AdminPanel: React.FC = () => {
   const [modelType, setModelType] = useState<string>("LSTM");
@@ -14,13 +15,15 @@ export const AdminPanel: React.FC = () => {
 
   const handleSeeding = async () => {
     setSeeding(true);
-    setSeedStatus("Executing seed script database/seeds/seed_data.py...");
-    
-    // Simulate database seeding completion
-    setTimeout(() => {
-      setSeedStatus("Database seeded successfully! Created 4 stations, 1,000 telemetry entries, and initial model versions.");
+    setSeedStatus("Connecting to backend and executing seed script...");
+    try {
+      const res = await apiService.seedDatabase();
+      setSeedStatus(res.message || "Database seeded successfully!");
+    } catch (err: any) {
+      setSeedStatus("Error: " + (err.message || "Failed to seed database. Is the backend running?"));
+    } finally {
       setSeeding(false);
-    }, 2000);
+    }
   };
 
   const handleRetrain = () => {

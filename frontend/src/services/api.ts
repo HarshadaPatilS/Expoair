@@ -356,5 +356,13 @@ export const apiService = {
         { lat: 28.5704 - 0.025, lng: 77.0658 + 0.025, aqi: 95, weight: 0.45 }
       ];
     }
+  },
+
+  // Admin Database Seeding
+  seedDatabase: async () => {
+    return request<any>("/admin/seed", {
+      method: "POST"
+    });
   }
 };
+

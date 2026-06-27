@@ -3,10 +3,12 @@ import sys
 from datetime import datetime, timedelta
 import random
 
-# Add backend directory to sys.path
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "backend")))
+# Add backend directory to sys.path if not present (useful if run as standalone script)
+backend_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+if backend_path not in sys.path:
+    sys.path.append(backend_path)
 
-from database.connection import SessionLocal, Base
+from database.connection import SessionLocal
 from database.schema import User, Station, AQIRecord, WeatherRecord, ModelVersion, Alert
 import bcrypt
 
@@ -96,7 +98,7 @@ def seed_db():
                 hour = record_time.hour
                 diurnal_factor = 1.0 + 0.3 * random.uniform(0.7, 1.3) if hour in [8, 9, 10, 18, 19, 20, 21] else 0.8 * random.uniform(0.8, 1.2)
                 
-                # Different stations have different pollution profiles (Anand Vihar is higher)
+                # Different stations have different pollution profiles
                 station_base = 150 if "Anand Vihar" in station.name else 70
                 pm25 = station_base * diurnal_factor + random.uniform(-10, 15)
                 pm25 = max(5.0, pm25)
