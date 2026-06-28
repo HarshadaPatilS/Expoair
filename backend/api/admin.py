@@ -86,7 +86,7 @@ async def get_system_status(db: Session = Depends(get_db)):
                 "https://api.open-meteo.com/v1/forecast"
                 "?latitude=18.52&longitude=73.86&hourly=temperature_2m&forecast_days=1"
             )
-            openmeteo_reachable = r.status_code == 200
+            openmeteo_reachable = r.status_code in (200, 429)  # 429 = rate limited but reachable
     except Exception:
         pass
 

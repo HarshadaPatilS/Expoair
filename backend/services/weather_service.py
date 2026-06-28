@@ -13,7 +13,7 @@ class WeatherService:
         # In-memory cache
         # Format: { "lat,lng": { "data": dict, "timestamp": float } }
         self._cache: Dict[str, Dict[str, Any]] = {}
-        self.cache_ttl = 900  # 15 minutes
+        self.cache_ttl = 7200  # 2 hours — avoids Open-Meteo rate limits on free hosting
 
     def _wind_direction_to_sector(self, degrees: float) -> str:
         """Converts 0-360 degrees to one of: N, NE, E, SE, S, SW, W, NW"""
@@ -46,6 +46,11 @@ class WeatherService:
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
                 response = await client.get(self.base_url, params=params)
+                if response.status_code == 429:
+                    logger.warning("Open-Meteo rate limit hit (429). Using cached or fallback data.")
+                    if cached:
+                        return cached["data"]
+                    return None
                 response.raise_for_status()
                 data = response.json()
                 
