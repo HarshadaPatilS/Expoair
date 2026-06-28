@@ -2,9 +2,10 @@ import React, { useState, useEffect } from "react";
 import { apiService } from "../services/api";
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer,
-  BarChart, Bar, Legend,
 } from "recharts";
-import { AlertCircle, Wind, Thermometer, Droplets, Navigation, Filter, Info } from "lucide-react";
+import { AlertCircle, Wind, Thermometer, Droplets, Navigation, Filter, Info, Factory, Car, Leaf, HelpCircle } from "lucide-react";
+import { EmptyState } from "../components/EmptyState";
+import { SkeletonLayout } from "../components/SkeletonCard";
 
 // ── City groups for the station picker ───────────────────────────────────────
 const CITY_GROUPS: Record<string, string[]> = {
@@ -21,21 +22,62 @@ function stationCity(name: string): string {
   return "Other";
 }
 
+// ── Source confidence badge helper ──────────────────────────────────────────
+function ConfidenceBadge({ confidence }: { confidence: number }) {
+  if (confidence >= 0.85)
+    return (
+      <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+        Confirmed
+      </span>
+    );
+  if (confidence >= 0.65)
+    return (
+      <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/30">
+        Likely
+      </span>
+    );
+  return (
+    <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-zinc-500/15 text-zinc-400 border border-zinc-500/30">
+      Uncertain
+    </span>
+  );
+}
+
+// ── Source icon helper ────────────────────────────────────────────────────────
+function sourceIcon(source: string) {
+  const s = source.toLowerCase();
+  if (s.includes("vehicular") || s.includes("traffic") || s.includes("road")) return Car;
+  if (s.includes("industrial") || s.includes("dust")) return Factory;
+  if (s.includes("biomass") || s.includes("burning") || s.includes("biogenic")) return Leaf;
+  return HelpCircle;
+}
+
+// ── Weather card color lookup — full class names required for Tailwind JIT ────
+const WEATHER_COLOR_MAP: Record<string, string> = {
+  amber:   "bg-amber-500/10 text-amber-500",
+  blue:    "bg-blue-500/10 text-blue-500",
+  emerald: "bg-emerald-500/10 text-emerald-500",
+  purple:  "bg-purple-500/10 text-purple-500",
+};
+
 export const Dashboard: React.FC = () => {
   const [stations, setStations]           = useState<any[]>([]);
   const [selectedStationId, setSelectedStationId] = useState<number>(1);
-  const [currentAqi, setCurrentAqi]       = useState<any>(null);
-  const [historyData, setHistoryData]     = useState<any[]>([]);
+  const [currentAqi, setCurrentAqi]       = useState<any>(undefined); // undefined=loading, null=offline, object=data
+  const [historyData, setHistoryData]     = useState<any[] | null>([]);
   const [activePollutant, setActivePollutant] = useState("pm25");
   const [timeRange, setTimeRange]         = useState(7);
-  const [diurnalData, setDiurnalData]     = useState<any[]>([]);
+  const [sourcesData, setSourcesData]     = useState<any>(undefined); // undefined = loading, null = error
+  const [stationsLoading, setStationsLoading] = useState(true);
 
   // Load stations once
   useEffect(() => {
     const fetchStations = async () => {
+      setStationsLoading(true);
       const data = await apiService.getStations();
       setStations(data);
       if (data.length > 0) setSelectedStationId(data[0].id);
+      setStationsLoading(false);
     };
     fetchStations();
   }, []);
@@ -52,53 +94,17 @@ export const Dashboard: React.FC = () => {
       ]);
       setCurrentAqi(live);
       setHistoryData(hist);
-
-      // Build diurnal source allocation from history
-      buildDiurnal(hist);
     };
     if (selectedStationId && stations.length > 0) loadStationData();
   }, [selectedStationId, stations, timeRange]);
 
-  // Compute diurnal profile from real history records
-  function buildDiurnal(records: any[]) {
-    if (!records.length) return;
-
-    const buckets: Record<string, { vehicular: number[]; industrial: number[]; biogenic: number[] }> = {
-      "Morning Peak": { vehicular: [], industrial: [], biogenic: [] },
-      "Mid-Day":      { vehicular: [], industrial: [], biogenic: [] },
-      "Evening Peak": { vehicular: [], industrial: [], biogenic: [] },
-      "Night Stable": { vehicular: [], industrial: [], biogenic: [] },
-    };
-
-    records.forEach((r: any) => {
-      const h = new Date(r.timestamp).getHours();
-      let bucket: string;
-      if (h >= 7  && h <= 10) bucket = "Morning Peak";
-      else if (h >= 11 && h <= 16) bucket = "Mid-Day";
-      else if (h >= 17 && h <= 21) bucket = "Evening Peak";
-      else bucket = "Night Stable";
-
-      const aqi = r.aqi || 0;
-      // Heuristic apportionment: traffic dominates rush hours
-      const veh_frac = (h >= 7 && h <= 10) || (h >= 17 && h <= 21) ? 0.55 : 0.25;
-      const ind_frac = (h >= 9  && h <= 18) ? 0.28 : 0.42;
-      const bio_frac = 1 - veh_frac - ind_frac;
-
-      buckets[bucket].vehicular.push(aqi * veh_frac);
-      buckets[bucket].industrial.push(aqi * ind_frac);
-      buckets[bucket].biogenic.push(aqi * bio_frac);
-    });
-
-    const avg = (arr: number[]) => arr.length ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : 0;
-    setDiurnalData(
-      Object.entries(buckets).map(([hour, vals]) => ({
-        hour,
-        vehicular:  avg(vals.vehicular),
-        industrial: avg(vals.industrial),
-        biogenic:   avg(vals.biogenic),
-      }))
-    );
-  }
+  // Fetch pollution sources whenever selected station changes
+  useEffect(() => {
+    const station = stations.find((s) => s.id === selectedStationId);
+    if (!station) return;
+    setSourcesData(undefined); // reset to loading
+    apiService.getSources(station.latitude, station.longitude).then(setSourcesData);
+  }, [selectedStationId, stations]);
 
   const getAqiColor = (aqi: number) => {
     if (aqi < 50)  return "#10b981";
@@ -124,6 +130,9 @@ export const Dashboard: React.FC = () => {
     grouped[city] = grouped[city] || [];
     grouped[city].push(s);
   });
+
+  // Show skeleton while initial station list is loading
+  if (stationsLoading) return <SkeletonLayout rows={2} />;
 
   return (
     <div className="space-y-6 text-left">
@@ -176,8 +185,21 @@ export const Dashboard: React.FC = () => {
         </div>
       </div>
 
+      {/* Offline state */}
+      {currentAqi === null && (
+        <EmptyState message="Backend offline — start the FastAPI server to see live data." />
+      )}
+
+      {/* AQI loading skeleton */}
+      {currentAqi === undefined && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="md:col-span-2 h-52 rounded-3xl border border-border bg-card animate-pulse" />
+          <div className="h-52 rounded-3xl border border-border bg-card animate-pulse" />
+        </div>
+      )}
+
       {/* AQI + Weather row */}
-      {currentAqi && (
+      {currentAqi && currentAqi !== null && (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {/* Main AQI card */}
           <div className="md:col-span-2 bg-card p-6 rounded-3xl border border-border shadow-sm flex flex-col justify-between relative overflow-hidden">
@@ -254,7 +276,7 @@ export const Dashboard: React.FC = () => {
                 { icon: Navigation, color: "purple",  label: "Wind Dir",    value: `${currentAqi.weather?.wind_direction_sector || currentAqi.weather?.wind_direction || "—"}` },
               ].map(({ icon: Icon, color, label, value }) => (
                 <div key={label} className={`flex items-center gap-3 bg-muted/50 p-3 rounded-2xl border border-border/60`}>
-                  <div className={`p-2 bg-${color}-500/10 text-${color}-500 rounded-lg`}>
+                  <div className={`p-2 rounded-lg ${WEATHER_COLOR_MAP[color] ?? "bg-zinc-500/10 text-zinc-500"}`}>
                     <Icon className="w-5 h-5" />
                   </div>
                   <div>
@@ -305,13 +327,13 @@ export const Dashboard: React.FC = () => {
             </div>
           </div>
           <div className="h-64">
-            {historyData.length === 0 ? (
+            {!historyData || historyData.length === 0 ? (
               <div className="h-full flex items-center justify-center text-sm text-muted-foreground">
                 No history data. Seed the database via Admin Panel.
               </div>
             ) : (
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={historyData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <AreaChart data={historyData || []} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                   <defs>
                     <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%"  stopColor={activePollutant === "aqi" ? "#8b5cf6" : "#2563eb"} stopOpacity={0.25} />
@@ -332,37 +354,108 @@ export const Dashboard: React.FC = () => {
           </div>
         </div>
 
-        {/* Diurnal source allocation */}
-        <div className="bg-card p-6 rounded-3xl border border-border shadow-sm space-y-4">
-          <div>
-            <h4 className="text-lg font-bold">Diurnal Source Allocation</h4>
-            <p className="text-xs text-muted-foreground">
-              Estimated emission source shares — computed from station history
-            </p>
-          </div>
-          <div className="h-64">
-            {diurnalData.length === 0 ? (
-              <div className="h-full flex items-center justify-center text-sm text-muted-foreground">
-                Loading…
-              </div>
-            ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={diurnalData} margin={{ top: 5, right: 5, left: -25, bottom: 5 }}>
-                  <XAxis dataKey="hour" stroke="#888" fontSize={9} tickLine={false} axisLine={false} />
-                  <YAxis stroke="#888" fontSize={10} tickLine={false} axisLine={false} />
-                  <Tooltip />
-                  <Legend iconSize={10} wrapperStyle={{ fontSize: 10 }} />
-                  <Bar dataKey="vehicular"  name="Traffic"    fill="#3b82f6" stackId="a" />
-                  <Bar dataKey="industrial" name="Industry"   fill="#ef4444" stackId="a" />
-                  <Bar dataKey="biogenic"   name="Natural"    fill="#10b981" stackId="a" radius={[4,4,0,0]} />
-                </BarChart>
-              </ResponsiveContainer>
+        {/* ── Pollution Sources Card (XGBoost) ─────────────────────────── */}
+        <div className="bg-card p-6 rounded-3xl border border-border shadow-sm space-y-5">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <h4 className="text-lg font-bold">Pollution Source Analysis</h4>
+              <p className="text-xs text-muted-foreground">XGBoost source-fingerprinting classifier</p>
+            </div>
+            {sourcesData && sourcesData.model_available && (
+              <ConfidenceBadge confidence={sourcesData.confidence} />
             )}
           </div>
-          <p className="text-[10px] text-muted-foreground leading-relaxed">
-            Apportionment estimated from AQI time-of-day patterns using traffic emission heuristics.
-            Vehicular share peaks during commute hours; industrial share is higher mid-day.
-          </p>
+
+          {/* Loading */}
+          {sourcesData === undefined && (
+            <div className="h-48 flex items-center justify-center text-sm text-muted-foreground animate-pulse">
+              Analysing pollution fingerprint…
+            </div>
+          )}
+
+          {/* Backend offline or model unavailable */}
+          {(sourcesData === null || (sourcesData && !sourcesData.model_available && !Object.keys(sourcesData.probabilities ?? {}).length)) && (
+            <div className="h-48 flex flex-col items-center justify-center gap-3 text-center">
+              <div className="p-3 bg-zinc-500/10 rounded-full">
+                <HelpCircle className="w-7 h-7 text-zinc-500" />
+              </div>
+              <p className="text-sm font-semibold text-muted-foreground">Source analysis unavailable</p>
+              <p className="text-xs text-muted-foreground max-w-xs">
+                {sourcesData?.context_note ?? "Backend offline or XGBoost model not loaded."}
+              </p>
+            </div>
+          )}
+
+          {/* Real data from model */}
+          {sourcesData && sourcesData.probabilities && Object.keys(sourcesData.probabilities).length > 0 && (
+            <div className="space-y-4">
+              {/* Dominant source row */}
+              <div className="flex items-center gap-3 p-3 bg-muted/60 rounded-2xl border border-border/60">
+                {(() => {
+                  const Icon = sourceIcon(sourcesData.source);
+                  return <div className="p-2 bg-primary/10 text-primary rounded-xl"><Icon className="w-5 h-5" /></div>;
+                })()}
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-bold truncate">{sourcesData.source}</p>
+                  <p className="text-[10px] text-muted-foreground">Dominant source · {(sourcesData.confidence * 100).toFixed(1)}% confidence</p>
+                </div>
+              </div>
+
+              {/* Probability bars */}
+              <div className="space-y-2.5">
+                {Object.entries(sourcesData.probabilities as Record<string, number>)
+                  .sort(([, a], [, b]) => b - a)
+                  .map(([label, prob]) => {
+                    const pct = Math.round(prob * 100);
+                    const Icon = sourceIcon(label);
+                    const barColor =
+                      label.toLowerCase().includes("vehicular") || label.toLowerCase().includes("traffic")
+                        ? "bg-blue-500"
+                        : label.toLowerCase().includes("industrial") || label.toLowerCase().includes("dust")
+                        ? "bg-rose-500"
+                        : label.toLowerCase().includes("biomass") || label.toLowerCase().includes("burning")
+                        ? "bg-amber-500"
+                        : "bg-violet-500";
+                    return (
+                      <div key={label}>
+                        <div className="flex items-center justify-between mb-1">
+                          <div className="flex items-center gap-1.5">
+                            <Icon className="w-3.5 h-3.5 text-muted-foreground" />
+                            <span className="text-xs font-medium">{label}</span>
+                          </div>
+                          <span className="text-xs font-bold tabular-nums">{pct}%</span>
+                        </div>
+                        <div className="h-2 bg-muted rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full transition-all duration-700 ${barColor}`}
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+
+              {/* Context note */}
+              {sourcesData.context_note && (
+                <p className="text-[11px] text-muted-foreground leading-relaxed border-t border-border/60 pt-3">
+                  {sourcesData.context_note}
+                </p>
+              )}
+
+              {/* Last updated */}
+              <p className="text-[10px] text-muted-foreground/60">
+                Last updated{" "}
+                {sourcesData.updated_at
+                  ? (() => {
+                      const diff = Math.round((Date.now() - new Date(sourcesData.updated_at).getTime()) / 60000);
+                      return diff < 2 ? "just now" : `${diff} min ago`;
+                    })()
+                  : "—"}
+                {" · "}{sourcesData.station_name}
+              </p>
+            </div>
+          )}
         </div>
       </div>
     </div>

@@ -126,3 +126,26 @@ body {
 .animate-spin-slow {
   animation: spin-slow 80s linear infinite;
 }
+
+/* Skeleton shimmer — layered over animate-pulse for a premium feel */
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
+.skeleton-shimmer {
+  background: linear-gradient(
+    90deg,
+    hsl(var(--muted)) 25%,
+    hsl(var(--accent)) 50%,
+    hsl(var(--muted)) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.6s ease-in-out infinite;
+}
+
+/* Mobile map height guard — prevents Leaflet maps overflowing on narrow viewports */
+@media (max-width: 768px) {
+  .leaflet-container {
+    max-height: 60vh !important;
+  }
+}

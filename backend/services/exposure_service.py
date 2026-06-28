@@ -1,3 +1,8 @@
+from datetime import datetime, timedelta
+from sqlalchemy.orm import Session
+from database.schema import AQIRecord, Station
+from services.openaq_service import calculate_haversine_distance
+
 class ExposureService:
     ACTIVITY_MULTIPLIERS = {
         "resting": 1.0,
@@ -8,6 +13,70 @@ class ExposureService:
     }
     
     WHO_DAILY_LIMIT_PM25 = 15.0  # µg/m³ (24-hr mean)
+
+    @classmethod
+    async def get_nearest_aqi_live(
+        cls,
+        lat: float,
+        lng: float,
+        db: Session,
+        openaq: any
+    ) -> tuple[float, bool]:
+        """
+        Retrieves the nearest AQI reading.
+        Tier 1: DB nearest AQIRecord within 25 km and < 2 hours old.
+        Tier 2: OpenAQ nearest station.
+        Tier 3: 85.0 fallback.
+        """
+        # Tier 1: Local DB Lookup
+        cutoff = datetime.utcnow() - timedelta(hours=2)
+        best_rec = None
+        best_dist = float("inf")
+
+        # Check station-linked records first
+        for station in db.query(Station).all():
+            dist = calculate_haversine_distance(lat, lng, station.latitude, station.longitude)
+            if dist < 25.0:
+                rec = (
+                    db.query(AQIRecord)
+                    .filter(
+                        AQIRecord.station_id == station.id,
+                        AQIRecord.timestamp >= cutoff
+                    )
+                    .order_by(AQIRecord.timestamp.desc())
+                    .first()
+                )
+                if rec and dist < best_dist:
+                    best_dist = dist
+                    best_rec = rec
+
+        # Check loose AQIRecords (e.g. from API fusion)
+        for rec in (
+            db.query(AQIRecord)
+            .filter(AQIRecord.timestamp >= cutoff, AQIRecord.station_id.is_(None))
+            .order_by(AQIRecord.timestamp.desc())
+            .limit(50)
+            .all()
+        ):
+            dist = calculate_haversine_distance(lat, lng, rec.lat, rec.lng)
+            if dist < 25.0 and dist < best_dist:
+                best_dist = dist
+                best_rec = rec
+
+        if best_rec:
+            return float(best_rec.aqi), True
+
+        # Tier 2: OpenAQ API fallback
+        try:
+            oaq = await openaq.get_nearest_station(lat, lng)
+            aqi = oaq.get("AQI")
+            if aqi and aqi > 0:
+                return float(aqi), True
+        except Exception:
+            pass
+
+        # Tier 3: Hardcoded fallback
+        return 85.0, False
 
     @classmethod
     def calculate_dose(cls, readings: list[dict]) -> dict:

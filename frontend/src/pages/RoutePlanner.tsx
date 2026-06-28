@@ -1,8 +1,10 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect } from "react";
 import { MapContainer, TileLayer, Polyline, CircleMarker, Popup, useMap } from "react-leaflet";
 import { apiService } from "../services/api";
 import { Clock, ShieldCheck, RefreshCw, Compass, Navigation } from "lucide-react";
 import "leaflet/dist/leaflet.css";
+import { EmptyState } from "../components/EmptyState";
+import { SkeletonCard } from "../components/SkeletonCard";
 
 // ── City presets ──────────────────────────────────────────────────────────────
 const CITY_PRESETS = [
@@ -49,31 +51,31 @@ export const RoutePlanner: React.FC = () => {
   const [selectedType, setSelectedType] = useState("lowest_pollution");
   const [loading, setLoading]   = useState(false);
   const [vehicle, setVehicle]   = useState("car");
+  const [isOffline, setIsOffline] = useState(false);
 
   const fetchRoutes = async () => {
     setLoading(true);
-    try {
-      const data = await apiService.getSafeRoutes(startLat, startLng, endLat, endLng, vehicle);
-      setRoutes(data.routes || []);
-    } catch {
+    setIsOffline(false);
+    const data = await apiService.getSafeRoutes(startLat, startLng, endLat, endLng, vehicle);
+    if (data === null) {
+      setIsOffline(true);
       setRoutes([]);
+    } else {
+      setRoutes(data.routes || []);
     }
     setLoading(false);
   };
 
-  // Apply a city preset
   const applyPreset = (preset: typeof CITY_PRESETS[0]) => {
     setStartLat(preset.sLat); setStartLng(preset.sLng);
     setEndLat(preset.eLat);   setEndLng(preset.eLng);
   };
 
-  // All waypoints of the active route (for map fitting)
   const activeRoute = routes.find((r) => r.route_type === selectedType);
   const allWPs: [number, number][] = activeRoute
     ? activeRoute.waypoints.map((wp: number[]) => [wp[0], wp[1]] as [number, number])
     : [];
 
-  // Centre map on midpoint of start→end
   const mapCenter: [number, number] = [
     (startLat + endLat) / 2,
     (startLng + endLng) / 2,
@@ -196,96 +198,106 @@ export const RoutePlanner: React.FC = () => {
 
         {/* ── Map + info ──────────────────────────────────────────────── */}
         <div className="lg:col-span-2 space-y-4">
-          {/* Leaflet map */}
-          <div className="rounded-3xl overflow-hidden border border-border shadow-sm" style={{ height: 400 }}>
-            {routes.length === 0 && !loading ? (
-              <div className="w-full h-full bg-muted/40 flex flex-col items-center justify-center gap-3 rounded-3xl">
-                <Navigation className="w-10 h-10 text-muted-foreground/40" />
-                <p className="text-sm text-muted-foreground font-medium">
-                  Select a preset or enter coordinates, then click <strong>Analyse Routes</strong>
-                </p>
-              </div>
-            ) : (
-              <MapContainer center={mapCenter} zoom={11} style={{ height: "100%", width: "100%" }} scrollWheelZoom>
-                <TileLayer
-                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                  attribution='&copy; <a href="https://openstreetmap.org">OpenStreetMap</a>'
-                />
-                {allWPs.length >= 2 && <FitBounds waypoints={allWPs} />}
+          {/* Loading skeleton for map area */}
+          {loading && (
+            <SkeletonCard height="h-[400px]" className="rounded-3xl" />
+          )}
 
-                {/* Draw all routes; active one is thicker */}
-                {routes.map((r) => {
-                  const style = ROUTE_STYLES[r.route_type] || { color: "#888" };
-                  const isActive = r.route_type === selectedType;
-                  const latlngs: [number, number][] = r.waypoints.map((wp: number[]) => [wp[0], wp[1]]);
-                  return (
-                    <Polyline
-                      key={r.route_type}
-                      positions={latlngs}
-                      pathOptions={{
-                        color: style.color,
-                        weight: isActive ? 5 : 2,
-                        opacity: isActive ? 0.95 : 0.35,
-                        dashArray: isActive ? undefined : "6 4",
-                      }}
-                    />
-                  );
-                })}
+          {/* Offline state */}
+          {isOffline && !loading && (
+            <EmptyState message="Backend offline — start the FastAPI server to analyse routes." />
+          )}
 
-                {/* Start marker */}
-                <CircleMarker center={[startLat, startLng]} radius={9}
-                  pathOptions={{ color: "#fff", fillColor: "#3b82f6", fillOpacity: 1, weight: 2 }}>
-                  <Popup><strong>Start</strong><br />{startLat.toFixed(4)}, {startLng.toFixed(4)}</Popup>
-                </CircleMarker>
-
-                {/* End marker */}
-                <CircleMarker center={[endLat, endLng]} radius={9}
-                  pathOptions={{ color: "#fff", fillColor: "#ef4444", fillOpacity: 1, weight: 2 }}>
-                  <Popup><strong>Destination</strong><br />{endLat.toFixed(4)}, {endLng.toFixed(4)}</Popup>
-                </CircleMarker>
-              </MapContainer>
-            )}
-          </div>
-
-          {/* Active route recommendation */}
-          {activeRoute && (
-            <div className="bg-card p-6 rounded-3xl border border-border shadow-sm space-y-4">
-              <div className="flex justify-between items-start gap-4">
-                <div className="space-y-1">
-                  <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full border border-emerald-500/20 bg-emerald-500/10 text-emerald-500 text-xs font-bold uppercase">
-                    <ShieldCheck className="w-3.5 h-3.5" />
-                    EDSS Recommendation
-                  </div>
-                  <h4 className="text-lg font-bold capitalize mt-2">
-                    {(ROUTE_STYLES[activeRoute.route_type]?.label || activeRoute.route_type)} Route
-                  </h4>
-                  <p className="text-xs text-muted-foreground max-w-lg">{activeRoute.recommendation}</p>
-                </div>
-                <div className="text-right shrink-0">
-                  <span className="text-[10px] font-bold text-muted-foreground uppercase block">Exposure Score</span>
-                  <span className="text-3xl font-extrabold text-blue-600 dark:text-emerald-400">
-                    {activeRoute.exposure_score}
-                  </span>
-                  <span className="text-[10px] text-muted-foreground block">min × AQI/100</span>
-                </div>
-              </div>
-
-              {/* Route stats row */}
-              <div className="grid grid-cols-3 gap-3 pt-3 border-t border-border text-center">
-                {[
-                  { label: "Travel Time",  value: `${activeRoute.travel_time_minutes} min` },
-                  { label: "Avg AQI",      value: activeRoute.average_aqi, color: aqiColor(activeRoute.average_aqi) },
-                  { label: "Route Type",   value: ROUTE_STYLES[activeRoute.route_type]?.label || activeRoute.route_type },
-                ].map((s) => (
-                  <div key={s.label} className="space-y-1">
-                    <p className="text-[10px] text-muted-foreground font-semibold uppercase">{s.label}</p>
-                    <p className="text-lg font-extrabold" style={s.color ? { color: s.color } : {}}>
-                      {s.value}
+          {/* Map + route detail — only rendered when online */}
+          {!isOffline && (
+            <>
+              <div className="rounded-3xl overflow-hidden border border-border shadow-sm" style={{ height: 400 }}>
+                {routes.length === 0 && !loading ? (
+                  <div className="w-full h-full bg-muted/40 flex flex-col items-center justify-center gap-3 rounded-3xl">
+                    <Navigation className="w-10 h-10 text-muted-foreground/40" />
+                    <p className="text-sm text-muted-foreground font-medium">
+                      Select a preset or enter coordinates, then click <strong>Analyse Routes</strong>
                     </p>
                   </div>
-                ))}
+                ) : (
+                  <MapContainer center={mapCenter} zoom={11} style={{ height: "100%", width: "100%" }} scrollWheelZoom>
+                    <TileLayer
+                      url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                      attribution='&copy; <a href="https://openstreetmap.org">OpenStreetMap</a>'
+                    />
+                    {allWPs.length >= 2 && <FitBounds waypoints={allWPs} />}
+
+                    {routes.map((r) => {
+                      const style = ROUTE_STYLES[r.route_type] || { color: "#888" };
+                      const isActive = r.route_type === selectedType;
+                      const latlngs: [number, number][] = r.waypoints.map((wp: number[]) => [wp[0], wp[1]]);
+                      return (
+                        <Polyline
+                          key={r.route_type}
+                          positions={latlngs}
+                          pathOptions={{
+                            color: style.color,
+                            weight: isActive ? 5 : 2,
+                            opacity: isActive ? 0.95 : 0.35,
+                            dashArray: isActive ? undefined : "6 4",
+                          }}
+                        />
+                      );
+                    })}
+
+                    <CircleMarker center={[startLat, startLng]} radius={9}
+                      pathOptions={{ color: "#fff", fillColor: "#3b82f6", fillOpacity: 1, weight: 2 }}>
+                      <Popup><strong>Start</strong><br />{startLat.toFixed(4)}, {startLng.toFixed(4)}</Popup>
+                    </CircleMarker>
+
+                    <CircleMarker center={[endLat, endLng]} radius={9}
+                      pathOptions={{ color: "#fff", fillColor: "#ef4444", fillOpacity: 1, weight: 2 }}>
+                      <Popup><strong>Destination</strong><br />{endLat.toFixed(4)}, {endLng.toFixed(4)}</Popup>
+                    </CircleMarker>
+                  </MapContainer>
+                )}
               </div>
-            </div>
+
+              {/* Active route recommendation card */}
+              {activeRoute && (
+                <div className="bg-card p-6 rounded-3xl border border-border shadow-sm space-y-4">
+                  <div className="flex justify-between items-start gap-4">
+                    <div className="space-y-1">
+                      <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full border border-emerald-500/20 bg-emerald-500/10 text-emerald-500 text-xs font-bold uppercase">
+                        <ShieldCheck className="w-3.5 h-3.5" />
+                        EDSS Recommendation
+                      </div>
+                      <h4 className="text-lg font-bold capitalize mt-2">
+                        {(ROUTE_STYLES[activeRoute.route_type]?.label || activeRoute.route_type)} Route
+                      </h4>
+                      <p className="text-xs text-muted-foreground max-w-lg">{activeRoute.recommendation}</p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <span className="text-[10px] font-bold text-muted-foreground uppercase block">Exposure Score</span>
+                      <span className="text-3xl font-extrabold text-blue-600 dark:text-emerald-400">
+                        {activeRoute.exposure_score}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground block">min × AQI/100</span>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-3 pt-3 border-t border-border text-center">
+                    {[
+                      { label: "Travel Time", value: `${activeRoute.travel_time_minutes} min` },
+                      { label: "Avg AQI",     value: activeRoute.average_aqi, color: aqiColor(activeRoute.average_aqi) },
+                      { label: "Route Type",  value: ROUTE_STYLES[activeRoute.route_type]?.label || activeRoute.route_type },
+                    ].map((s) => (
+                      <div key={s.label} className="space-y-1">
+                        <p className="text-[10px] text-muted-foreground font-semibold uppercase">{s.label}</p>
+                        <p className="text-lg font-extrabold" style={s.color ? { color: s.color } : {}}>
+                          {s.value}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>

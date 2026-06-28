@@ -26,10 +26,24 @@ async def lifespan(app: FastAPI):
     
     # Auto-initialize database tables on startup
     try:
-        from database.connection import engine, Base
+        from database.connection import engine, Base, SessionLocal
         import database.schema  # ensure models are registered
         Base.metadata.create_all(bind=engine)
         logger.info("Database tables initialized successfully on startup.")
+        
+        # Check if database is empty and auto-seed
+        db = SessionLocal()
+        try:
+            from database.schema import Station
+            if db.query(Station).count() == 0:
+                logger.info("Database is empty. Auto-seeding database...")
+                from database.seeds.seed_data import seed_db
+                seed_db()
+                logger.info("Database auto-seeded successfully.")
+        except Exception as se:
+            logger.error(f"Database auto-seeding failed: {se}")
+        finally:
+            db.close()
     except Exception as e:
         logger.error(f"Failed to initialize database tables: {e}")
 
@@ -69,18 +83,19 @@ app = FastAPI(
 )
 
 # CORS middleware allowing Vite frontend dev server and production domains
+# NOTE: wildcard "*" is intentionally excluded — it cannot be combined with
+# allow_credentials=True and would cause browser CORS preflight failures.
 origins = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "http://localhost:3000",
     "http://127.0.0.1:3000",
-    "*"
 ]
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -95,6 +110,7 @@ from api.routes import router as routes_router
 from api.chat import router as chat_router
 from api.maps import router as maps_router
 from api.admin import router as admin_router
+from api.alerts import router as alerts_router
 
 # Include routers
 app.include_router(auth_router, prefix="/api")
@@ -106,6 +122,7 @@ app.include_router(routes_router, prefix="/api")
 app.include_router(chat_router, prefix="/api")
 app.include_router(maps_router, prefix="/api")
 app.include_router(admin_router, prefix="/api")
+app.include_router(alerts_router, prefix="/api")
 
 @app.get("/")
 def read_root():

@@ -3,6 +3,8 @@ import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from "react-leaf
 import { apiService } from "../services/api";
 import { Crosshair, RefreshCw, MapPin } from "lucide-react";
 import "leaflet/dist/leaflet.css";
+import { EmptyState } from "../components/EmptyState";
+import { SkeletonLayout } from "../components/SkeletonCard";
 
 // ── City centre presets ──────────────────────────────────────────────────────
 const CITIES = [
@@ -38,25 +40,21 @@ function MapController({ center, zoom }: { center: [number, number]; zoom: numbe
 
 // ── Main Component ────────────────────────────────────────────────────────────
 export const LiveMap: React.FC = () => {
-  const [heatmapData, setHeatmapData] = useState<any[]>([]);
+  const [heatmapData, setHeatmapData] = useState<any[] | null>(null); // null=never loaded
   const [loading, setLoading]         = useState(true);
   const [selectedCity, setSelectedCity] = useState(CITIES[0]);   // Delhi default
 
   const fetchHeatmap = async () => {
     setLoading(true);
-    try {
-      const data = await apiService.getHeatmap(selectedCity.lat, selectedCity.lng);
-      setHeatmapData(data);
-    } catch {
-      setHeatmapData([]);
-    }
+    const data = await apiService.getHeatmap(selectedCity.lat, selectedCity.lng);
+    setHeatmapData(data);
     setLoading(false);
   };
 
   useEffect(() => { fetchHeatmap(); }, [selectedCity]);
 
   // Only show points near the selected city (within ~120 km)
-  const visiblePoints = heatmapData.filter((p) => {
+  const visiblePoints = (heatmapData ?? []).filter((p) => {
     const dlat = p.lat - selectedCity.lat;
     const dlng = p.lng - selectedCity.lng;
     return Math.sqrt(dlat * dlat + dlng * dlng) < 1.5;
@@ -64,6 +62,12 @@ export const LiveMap: React.FC = () => {
 
   // Station-only points (those with a station_name)
   const stationPoints = visiblePoints.filter((p) => p.station_name);
+
+  // If backend is offline, show EmptyState instead of map
+  const isOffline = !loading && heatmapData === null;
+
+  // Show skeleton only on the very first load (heatmapData still null = never fetched)
+  if (loading && heatmapData === null) return <SkeletonLayout rows={2} />;
 
   return (
     <div className="space-y-4 text-left">
@@ -104,10 +108,14 @@ export const LiveMap: React.FC = () => {
         </div>
       </div>
 
-      {/* Map + legend grid */}
+      {/* Map + legend grid or offline state */}
+      {isOffline ? (
+        <EmptyState message="Backend offline — start the FastAPI server to see the live AQI map." />
+      ) : (
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
         {/* Leaflet Map */}
-        <div className="lg:col-span-3 rounded-3xl overflow-hidden border border-border shadow-sm" style={{ height: 500 }}>
+        <div className="lg:col-span-3 rounded-3xl overflow-hidden border border-border shadow-sm" style={{ height: "min(60vh, 500px)" }}>
+          {/* Responsive height: max 60vh on mobile, 500px on desktop */}
           <MapContainer
             center={[selectedCity.lat, selectedCity.lng]}
             zoom={selectedCity.zoom}
@@ -249,6 +257,7 @@ export const LiveMap: React.FC = () => {
           </div>
         </div>
       </div>
+      )}{/* end isOffline ternary */}
     </div>
   );
 };

@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 MQTT_BROKER = "psyduck-6158e935.a02.usw2.aws.hivemq.cloud"
 MQTT_PORT = 8883
 MQTT_USER = "Vaishnavi"
-MQTT_PASS = "Aqi12345"
+MQTT_PASS = os.getenv("MQTT_PASS", "")
 TOPIC_DATA = "AQI/data"
 
 class MQTTService:
@@ -192,6 +192,12 @@ class MQTTService:
                     )
                     db.add(new_record)
                     db.commit()
+                    # Check if any alert thresholds are exceeded by this new reading
+                    try:
+                        from api.alerts import check_alerts_for_record
+                        check_alerts_for_record(db, new_record)
+                    except Exception as alert_err:
+                        logger.warning(f"Alert check failed (non-fatal): {alert_err}")
                     logger.info(f"[DATABASE] Successfully inserted live telemetry record for station '{station.name}' (AQI: {iaqi}, Temp: {temp}°C, Humidity: {hum}%)")
                 else:
                     logger.warning("No stations found in the database. Please seed the database first.")

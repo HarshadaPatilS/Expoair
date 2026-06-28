@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { apiService } from "../services/api";
-import { Send, Sparkles, User, Bot } from "lucide-react";
+import { Send, Sparkles, User, Bot, WifiOff } from "lucide-react";
+import { EmptyState } from "../components/EmptyState";
 
 interface Message {
   sender: "user" | "bot";
@@ -30,31 +31,31 @@ export const AIAssistant: React.FC = () => {
 
   const handleSend = async (text: string) => {
     if (!text.trim() || sending) return;
-    
+
     // Add user message
     const userMsg: Message = { sender: "user", text, timestamp: new Date() };
     setMessages(prev => [...prev, userMsg]);
     setInputVal("");
     setSending(true);
 
-    try {
-      const res = await apiService.sendMessage(text);
+    const res = await apiService.sendMessage(text);
+    if (res === null) {
+      // Backend is offline
+      const offlineMsg: Message = {
+        sender: "bot",
+        text: "📵 Cannot reach the AI backend. Please start the FastAPI server and try again.",
+        timestamp: new Date(),
+      };
+      setMessages(prev => [...prev, offlineMsg]);
+    } else {
       const botMsg: Message = {
         sender: "bot",
         text: res.answer,
-        timestamp: new Date(res.timestamp || Date.now())
+        timestamp: new Date(res.timestamp || Date.now()),
       };
       setMessages(prev => [...prev, botMsg]);
-    } catch {
-      const botMsg: Message = {
-        sender: "bot",
-        text: "Apologies, I'm experiencing connectivity issues with the decision support server. Here is a simulated response based on cached metrics.",
-        timestamp: new Date()
-      };
-      setMessages(prev => [...prev, botMsg]);
-    } finally {
-      setSending(false);
     }
+    setSending(false);
   };
 
   useEffect(() => {

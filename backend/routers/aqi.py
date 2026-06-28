@@ -31,6 +31,9 @@ def get_traffic_service(): return TrafficService()
 class AQICurrentResponse(BaseModel):
     aqi: float = Field(..., description="Calculated or retrieved global AQI index")
     pm25: float = Field(..., description="Particulate matter <= 2.5 micrometers")
+    pm10: Optional[float] = Field(None, description="Particulate matter <= 10 micrometers")
+    no2: Optional[float] = Field(None, description="Nitrogen dioxide concentration")
+    so2: Optional[float] = Field(None, description="Sulphur dioxide concentration")
     lat: float = Field(..., description="Evaluated latitude")
     lng: float = Field(..., description="Evaluated longitude")
     source: str = Field(..., description="Data source description (e.g., fusion_api, firebase_sensor)")
@@ -97,9 +100,16 @@ async def get_current_aqi(
         fused_aqi = float(base_aqi) * weather_factor * (1.0 + (traffic_idx * 0.2))
         fused_pm25 = float(base_pm25) * weather_factor * (1.0 + (traffic_idx * 0.2))
         
+        raw_pm10 = openaq_data.get("PM10")
+        raw_no2  = openaq_data.get("NO2")
+        raw_so2  = openaq_data.get("SO2")
+
         return AQICurrentResponse(
             aqi=round(fused_aqi, 2),
             pm25=round(fused_pm25, 2),
+            pm10=round(float(raw_pm10) * weather_factor, 2) if raw_pm10 is not None else None,
+            no2 =round(float(raw_no2)  * weather_factor, 2) if raw_no2  is not None else None,
+            so2 =round(float(raw_so2)  * weather_factor, 2) if raw_so2  is not None else None,
             lat=lat,
             lng=lng,
             source="fusion_api",

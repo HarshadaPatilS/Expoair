@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { 
   LayoutDashboard, Map, TrendingUp, Activity, User, Route, 
-  MessageSquare, BarChart3, ShieldAlert, Sun, Moon, LogOut, LogIn, Menu, Wind
+  MessageSquare, BarChart3, ShieldAlert, Sun, Moon, LogOut, LogIn, Menu, Wind, Bell
 } from "lucide-react";
 
 interface MainLayoutProps {
@@ -42,11 +42,11 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
     { id: "routes", label: "Route Optimizer", icon: Route },
     { id: "chat", label: "AI Assistant", icon: MessageSquare },
     { id: "analytics", label: "Analytics", icon: BarChart3 },
+    { id: "alerts",    label: "Alerts",    icon: Bell },
     ...(userRole === "admin" ? [{ id: "admin", label: "Admin Panel", icon: ShieldAlert }] : []),
   ];
 
   const handleLogout = () => {
-    localStorage.removeItem("token");
     setUserRole("");
     setCurrentPage("landing");
   };
@@ -63,9 +63,11 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
             <Menu className="w-5 h-5" />
           </button>
           <div className="flex items-center gap-2 cursor-pointer" onClick={() => setCurrentPage("landing")}>
-            <div className="w-8 h-8 rounded-lg bg-emerald-500 flex items-center justify-center text-white font-bold text-lg shadow-sm shadow-emerald-500/30">
-              A
-            </div>
+            <img
+              src="/favicon.svg"
+              alt="AirSense"
+              className="w-8 h-8"
+            />
             <span className="font-bold text-xl tracking-tight bg-gradient-to-r from-blue-500 to-emerald-500 bg-clip-text text-transparent">
               AirSense AI
             </span>

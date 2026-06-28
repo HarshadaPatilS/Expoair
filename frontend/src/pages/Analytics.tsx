@@ -4,10 +4,13 @@ import {
   ResponsiveContainer, ScatterChart, Scatter, XAxis, YAxis, ZAxis,
   Tooltip, LineChart, Line, Legend,
 } from "recharts";
-import { TableProperties, TrendingUp } from "lucide-react";
+import { TableProperties, TrendingUp, Download } from "lucide-react";
+
+import { EmptyState } from "../components/EmptyState";
+import { SkeletonLayout } from "../components/SkeletonCard";
 
 export const Analytics: React.FC = () => {
-  const [history, setHistory] = useState<any[]>([]);
+  const [history, setHistory] = useState<any[] | null>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -21,32 +24,81 @@ export const Analytics: React.FC = () => {
     load();
   }, []);
 
+  // ── CSV Export ────────────────────────────────────────────────────────────
+  const downloadCSV = () => {
+    if (!history || history.length === 0) return;
+    const csv = [
+      "timestamp,aqi,pm25,pm10,no2,so2,temp,humidity,wind_speed",
+      ...history.map((r) =>
+        [
+          r.timestamp,
+          r.aqi ?? "",
+          r.pm25 ?? "",
+          r.pm10 ?? "",
+          r.no2 ?? "",
+          r.so2 ?? "",
+          r.temp ?? "",
+          r.humidity ?? "",
+          r.wind_speed ?? "",
+        ].join(",")
+      ),
+    ].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    a.href     = url;
+    a.download = `expoair_history_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   // ── Compute stats from real data ──────────────────────────────────────────
-  const avgAqi  = history.length > 0 ? Math.round(history.reduce((a, b) => a + b.aqi, 0)  / history.length) : 0;
-  const avgPm25 = history.length > 0 ? Math.round(history.reduce((a, b) => a + b.pm25, 0) / history.length) : 0;
-  const peakAqi = history.length > 0 ? Math.max(...history.map((h) => h.aqi)) : 0;
+  const avgAqi  = history && history.length > 0 ? Math.round(history.reduce((a, b) => a + b.aqi, 0)  / history.length) : 0;
+  const avgPm25 = history && history.length > 0 ? Math.round(history.reduce((a, b) => a + b.pm25, 0) / history.length) : 0;
+  const peakAqi = history && history.length > 0 ? Math.max(...history.map((h) => h.aqi)) : 0;
 
   // ── Subsample for trend chart (max 60 points for readability) ─────────────
-  const step = Math.max(1, Math.floor(history.length / 60));
-  const trendData = history.filter((_, i) => i % step === 0);
+  const trendData = history ? history.filter((_, i) => {
+    const step = Math.max(1, Math.floor(history.length / 60));
+    return i % step === 0;
+  }) : [];
 
   // ── Build wind vs PM2.5 scatter from real records ─────────────────────────
-  // We need weather records — use the station history and cross-reference
-  // The AQI records don't store wind_speed directly; we read from what we have
-  // (the live API response stores weather fields in AQIRecord via aqi.py fusion)
-  // We can still build this from any records that have enough data by using
-  // an approximation: re-sample from trendData using hour-of-day as a proxy
+  // Use real wind speed when available, fallback to proxy when null.
   const correlationData = trendData
-    .map((r, i) => {
+    .map((r) => {
       const h = new Date(r.timestamp).getHours();
-      // Diurnal wind proxy: morning calm, afternoon windy
-      const wind_proxy = 4 + 8 * Math.sin(Math.PI * h / 24);
-      return { wind: Math.round(wind_proxy * 10) / 10, pm25: r.pm25, aqi: r.aqi };
+      const hasRealWind = r.wind_speed !== null && r.wind_speed !== undefined;
+      const windValue = hasRealWind ? r.wind_speed : 4 + 8 * Math.sin(Math.PI * h / 24);
+      return {
+        wind: Math.round(windValue * 10) / 10,
+        pm25: r.pm25,
+        aqi: r.aqi,
+        windLabel: hasRealWind ? `${Math.round(windValue * 10) / 10} km/h` : `${Math.round(windValue * 10) / 10} km/h (Estimated)`
+      };
     })
     .slice(0, 30);  // 30 scatter points max
 
   // ── Record count by source ────────────────────────────────────────────────
-  const stationFeedCount = history.filter((h) => h.aqi > 0).length;
+  const stationFeedCount = history ? history.filter((h) => h.aqi > 0).length : 0;
+
+  if (loading) return <SkeletonLayout rows={2} />;
+
+  if (!loading && history === null) {
+    return (
+      <div className="space-y-6 text-left">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-card p-4 rounded-2xl border border-border shadow-sm">
+          <div>
+            <h2 className="text-xl font-bold tracking-tight">Environmental Analytics Panel</h2>
+            <p className="text-xs text-muted-foreground">
+              14-day trend analysis, meteorological correlation, and station telemetry records
+            </p>
+          </div>
+        </div>
+        <EmptyState message="Backend offline — start the FastAPI server to see live data." />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 text-left">
@@ -57,6 +109,15 @@ export const Analytics: React.FC = () => {
             14-day trend analysis, meteorological correlation, and station telemetry records
           </p>
         </div>
+        <button
+          id="export-csv-btn"
+          onClick={downloadCSV}
+          disabled={!history || history.length === 0}
+          className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-border bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-sm"
+        >
+          <Download className="w-3.5 h-3.5" />
+          📥 Export CSV
+        </button>
       </div>
 
       {/* KPI row */}
@@ -112,7 +173,15 @@ export const Analytics: React.FC = () => {
                   <XAxis type="number" dataKey="wind"  name="Wind Speed" unit=" km/h" stroke="#888" fontSize={10} tickLine={false} axisLine={false} />
                   <YAxis type="number" dataKey="pm25"  name="PM2.5"      unit=" µg"   stroke="#888" fontSize={10} tickLine={false} axisLine={false} />
                   <ZAxis type="number" dataKey="aqi"   range={[40, 300]} name="AQI" />
-                  <Tooltip cursor={{ strokeDasharray: "3 3" }} />
+                  <Tooltip 
+                    cursor={{ strokeDasharray: "3 3" }} 
+                    formatter={(value: any, name: any, props: any) => {
+                      if (name === "Wind Speed") {
+                        return [props.payload.windLabel || `${value} km/h`, name];
+                      }
+                      return [value, name];
+                    }}
+                  />
                   <Scatter name="Telemetry Nodes" data={correlationData} fill="#ef4444" />
                 </ScatterChart>
               </ResponsiveContainer>
@@ -120,7 +189,7 @@ export const Analytics: React.FC = () => {
           </div>
           <p className="text-[10px] text-muted-foreground leading-relaxed">
             Expected negative correlation: higher wind speeds disperse particulate matter, reducing PM2.5.
-            Wind proxy derived from diurnal pattern (morning calm, afternoon ventilation).
+            Real wind speeds are plotted where available; missing values display as "(Estimated)" using a diurnal weather proxy model.
           </p>
         </div>
 
@@ -190,7 +259,7 @@ export const Analytics: React.FC = () => {
                   </tr>
                 );
               })}
-              {history.length === 0 && (
+              {(!history || history.length === 0) && (
                 <tr>
                   <td colSpan={4} className="py-6 text-center text-muted-foreground">
                     No records found. Use Admin Panel → Seed Database to populate station history.

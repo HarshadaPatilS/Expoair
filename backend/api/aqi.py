@@ -54,6 +54,7 @@ class HistoryDataPoint(BaseModel):
     timestamp: datetime
     aqi: float
     pm25: float
+    wind_speed: Optional[float] = None
 
 
 # ── Dependency helpers ──────────────────────────────────────────────────────
@@ -272,4 +273,4 @@ def get_aqi_history(
             q = q.filter(AQIRecord.station_id == nearest.id)
 
     records = q.order_by(AQIRecord.timestamp.asc()).limit(200).all()
-    return [HistoryDataPoint(timestamp=r.timestamp, aqi=r.aqi, pm25=r.pm25) for r in records]
+    return [HistoryDataPoint(timestamp=r.timestamp, aqi=r.aqi, pm25=r.pm25, wind_speed=r.wind_speed) for r in records]

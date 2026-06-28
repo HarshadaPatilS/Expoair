@@ -4,6 +4,7 @@ import {
   Database, Cpu, RefreshCw, Terminal, CheckCircle2,
   XCircle, AlertCircle, Activity, Server, Wifi
 } from "lucide-react";
+import { SkeletonCard } from "../components/SkeletonCard";
 
 interface SystemStatus {
   timestamp: string;
@@ -24,6 +25,10 @@ interface SystemStatus {
   external_apis: {
     openaq: "reachable" | "unreachable";
     open_meteo: "reachable" | "unreachable";
+  };
+  mqtt?: {
+    connected: boolean;
+    mode: "hardware" | "simulator" | "offline";
   };
 }
 
@@ -207,23 +212,41 @@ export const AdminPanel: React.FC = () => {
                 <span>FastAPI Backend · localhost:8000</span>
                 <StatusBadge ok label="Online" />
               </div>
-              <div className="flex items-center gap-1.5">
+               <div className="flex items-center gap-1.5">
                 <Activity className="w-3 h-3" />
-                <span>MQTT Simulator</span>
-                <span className="text-amber-500 font-bold ml-1">Simulated</span>
+                <span>MQTT Status</span>
+                {status.mqtt ? (
+                  <span className={`font-bold ml-1 ${
+                    status.mqtt.mode === "hardware" ? "text-emerald-500" :
+                    status.mqtt.mode === "simulator" ? "text-amber-500" : "text-red-500"
+                  }`}>
+                    {status.mqtt.mode === "hardware" ? "🟢 Live Hardware" :
+                     status.mqtt.mode === "simulator" ? "🟡 Simulator" : "🔴 Offline"}
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground ml-1">Unknown</span>
+                )}
               </div>
-              <p className="text-amber-500 text-[10px] mt-1">
-                ⚠ ESP32 hardware offline — using synthetic telemetry via MQTT publisher simulator
+              <p className={`text-[10px] mt-1 ${
+                status.mqtt?.mode === "hardware" ? "text-emerald-500" :
+                status.mqtt?.mode === "simulator" ? "text-amber-500" : "text-red-500"
+              }`}>
+                {status.mqtt?.mode === "hardware" && "✔ ESP32 hardware online — receiving live telemetry via HiveMQ"}
+                {status.mqtt?.mode === "simulator" && "⚠ ESP32 hardware offline — using synthetic telemetry via MQTT publisher simulator"}
+                {status.mqtt?.mode === "offline" && "✖ MQTT service stopped or offline — no telemetry being received"}
               </p>
             </div>
           </div>
         </div>
+      ) : statusLoading ? (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <SkeletonCard height="h-40" />
+          <SkeletonCard height="h-40" />
+          <SkeletonCard height="h-40" />
+        </div>
       ) : (
         <div className="p-6 bg-card border border-border rounded-2xl text-sm text-muted-foreground flex items-center gap-2">
-          {statusLoading
-            ? <><RefreshCw className="w-4 h-4 animate-spin" /> Loading system status…</>
-            : <><AlertCircle className="w-4 h-4 text-amber-500" /> Could not reach backend. Is it running on port 8000?</>
-          }
+          <AlertCircle className="w-4 h-4 text-amber-500" /> Could not reach backend. Is it running on port 8000?
         </div>
       )}
 

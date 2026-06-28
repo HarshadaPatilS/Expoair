@@ -90,6 +90,18 @@ async def get_system_status(db: Session = Depends(get_db)):
     except Exception:
         pass
 
+    # ── MQTT/ESP32 status ─────────────────────────────────────────────────
+    from services.mqtt_service import MQTTService
+    mqtt_service = MQTTService()
+    if not mqtt_service.running:
+        mqtt_mode = "offline"
+    elif mqtt_service.local_simulation:
+        mqtt_mode = "simulator"
+    elif mqtt_service.connected:
+        mqtt_mode = "hardware"
+    else:
+        mqtt_mode = "offline"
+
     return {
         "timestamp": datetime.utcnow().isoformat(),
         "database": {
@@ -110,4 +122,34 @@ async def get_system_status(db: Session = Depends(get_db)):
             "openaq":     "reachable" if openaq_reachable else "unreachable",
             "open_meteo": "reachable" if openmeteo_reachable else "unreachable",
         },
+        "mqtt": {
+            "connected": mqtt_service.connected,
+            "mode": mqtt_mode,
+        },
     }
+
+
+@router.get("/mqtt-status")
+async def get_mqtt_status():
+    """Returns the current MQTT/ESP32 connection and mode status."""
+    from services.mqtt_service import MQTTService
+    service = MQTTService()
+    if not service.running:
+        mode = "offline"
+    elif service.local_simulation:
+        mode = "simulator"
+    elif service.connected:
+        mode = "hardware"
+    else:
+        mode = "offline"
+    return {
+        "connected": service.connected,
+        "mode": mode
+    }
+
+
+@router.get("/model-status")
+async def get_model_status():
+    """Returns the loaded status of ML models."""
+    return MLService.status()
+

@@ -10,12 +10,13 @@ import { RoutePlanner } from "./pages/RoutePlanner";
 import { AIAssistant } from "./pages/AIAssistant";
 import { Analytics } from "./pages/Analytics";
 import { AdminPanel } from "./pages/AdminPanel";
+import { Alerts } from "./pages/Alerts";
 
 import "./App.css";
 
 function App() {
   const [currentPage, setCurrentPage] = useState<string>("landing");
-  const [userRole, setUserRole] = useState<string>("admin"); // Defaults to admin for user inspection
+  const [userRole, setUserRole] = useState<string>("");
 
   const renderPage = () => {
     switch (currentPage) {
@@ -37,6 +38,8 @@ function App() {
         return <AIAssistant />;
       case "analytics":
         return <Analytics />;
+      case "alerts":
+        return <Alerts />;
       case "admin":
         return <AdminPanel />;
       default:

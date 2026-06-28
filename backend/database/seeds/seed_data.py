@@ -17,6 +17,11 @@ def get_password_hash(password: str) -> str:
     return bcrypt.hashpw(password.encode('utf-8'), salt).decode('utf-8')
 
 def seed_db():
+    # Ensure tables exist
+    from database.connection import engine, Base
+    import database.schema
+    Base.metadata.create_all(bind=engine)
+
     db = SessionLocal()
     try:
         print("Starting database seeding...")

@@ -48,7 +48,6 @@ export const Landing: React.FC<LandingProps> = ({ setCurrentPage, setUserRole })
       const res = isLogin
         ? await apiService.login(email, password)
         : await apiService.signup(email, password);
-      localStorage.setItem("token", res.access_token);
       setUserRole(res.role);
       setCurrentPage("dashboard");
     } catch (err: any) {
