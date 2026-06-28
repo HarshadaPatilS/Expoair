@@ -1,6 +1,6 @@
 const BASE_URL = import.meta.env.VITE_API_URL
   ? `${import.meta.env.VITE_API_URL}/api`
-  : "http://localhost:8000/api";
+  : "https://expoair-airsense.onrender.com/api";
 
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const headers = {
