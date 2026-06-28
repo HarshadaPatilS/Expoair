@@ -81,7 +81,7 @@ async def get_system_status(db: Session = Depends(get_db)):
     openmeteo_reachable = False
     try:
         import httpx
-        async with httpx.AsyncClient(timeout=5.0) as client:
+        async with httpx.AsyncClient(timeout=15.0) as client:
             r = await client.get(
                 "https://api.open-meteo.com/v1/forecast"
                 "?latitude=18.52&longitude=73.86&hourly=temperature_2m&forecast_days=1"

@@ -38,13 +38,13 @@ class WeatherService:
         params = {
             "latitude": lat,
             "longitude": lng,
-            "hourly": "pm2_5,wind_speed_10m,wind_direction_10m,relative_humidity_2m,temperature_2m,precipitation",
+            "hourly": "wind_speed_10m,wind_direction_10m,relative_humidity_2m,temperature_2m,precipitation",
             "forecast_days": 2,
             "timezone": "Asia/Kolkata"
         }
 
         try:
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(timeout=15.0) as client:
                 response = await client.get(self.base_url, params=params)
                 response.raise_for_status()
                 data = response.json()
