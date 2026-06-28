@@ -1,0 +1,24 @@
+{
+    "features": [
+        "pm25",
+        "pm10",
+        "pm1",
+        "no2",
+        "so2",
+        "pm1_pm25_ratio",
+        "pm10_pm25_ratio",
+        "wind_dir_sector",
+        "hour",
+        "month",
+        "is_weekend"
+    ],
+    "labels": {
+        "0": "Vehicular Emissions",
+        "1": "Industrial Pollution",
+        "2": "Construction Dust",
+        "3": "Biomass Burning",
+        "4": "Mixed / Background"
+    },
+    "n_classes": 5,
+    "model_accuracy": 0.87
+}
