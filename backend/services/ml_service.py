@@ -17,18 +17,19 @@ class MLService:
 
     @classmethod
     def initialize(cls):
-        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-        models_dir = os.path.join(base_dir, "ml", "models_saved")
-
-        # ── Try all plausible LSTM file names ─────────────────────────────
-        for fname in ("lstm_aqi.keras", "lstm_aqi.h5"):
-            lstm_path = os.path.join(models_dir, fname)
-            if os.path.exists(lstm_path):
-                cls._load_lstm(lstm_path)
-                break
+        # MODELS_DIR env var set on Render; fallback walks up from this file
+        if os.getenv("MODELS_DIR"):
+            models_dir = os.getenv("MODELS_DIR")
         else:
-            logger.warning("MLService: No LSTM model file found. Using rule-based fallback.")
+            this_file  = os.path.abspath(__file__)
+            backend_dir = os.path.dirname(os.path.dirname(this_file))  # backend/
+            repo_root   = os.path.dirname(backend_dir)                 # Expoair/
+            models_dir  = os.path.join(repo_root, "ml", "models_saved")
 
+        logger.info(f"MLService: models_dir = {models_dir}")
+        logger.info(f"MLService: exists = {os.path.exists(models_dir)}")
+        logger.info(f"MLService: files = {os.listdir(models_dir) if os.path.exists(models_dir) else 'NOT FOUND'}")
+        
         # ── XGBoost source fingerprinter ──────────────────────────────────
         xgb_path  = os.path.join(models_dir, "source_fingerprinter.json")
         meta_path = os.path.join(models_dir, "fingerprinter_meta.json")
