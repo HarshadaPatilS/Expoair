@@ -125,6 +125,27 @@ app.include_router(maps_router, prefix="/api")
 app.include_router(admin_router, prefix="/api")
 app.include_router(alerts_router, prefix="/api")
 
+@app.get("/debug-paths")
+def debug_paths():
+    import glob
+    import services.ml_service as svc
+    
+    # Reconstruct exactly what ml_service computes
+    ml_file = svc.__file__
+    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(ml_file)))
+    models_dir = os.path.join(base_dir, "ml", "models_saved")
+    
+    return {
+        "ml_service_file": ml_file,
+        "computed_base_dir": base_dir,
+        "computed_models_dir": models_dir,
+        "models_dir_exists": os.path.exists(models_dir),
+        "files_found": glob.glob(os.path.join(models_dir, "*")),
+        "all_keras_on_disk": glob.glob("/opt/render/project/**/*.keras", recursive=True),
+        "all_pkl_on_disk":   glob.glob("/opt/render/project/**/*.pkl",   recursive=True),
+        "ml_status": MLService.status(),
+    }
+    
 @app.get("/")
 def read_root():
     return {
