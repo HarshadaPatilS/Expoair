@@ -209,7 +209,7 @@ export const AdminPanel: React.FC = () => {
             <div className="border-t border-border pt-2.5 space-y-1 text-[10px] text-muted-foreground">
               <div className="flex items-center gap-1.5">
                 <Server className="w-3 h-3" />
-                <span>FastAPI Backend · localhost:8000</span>
+                <span>FastAPI Backend · Render</span>
                 <StatusBadge ok label="Online" />
               </div>
                <div className="flex items-center gap-1.5">

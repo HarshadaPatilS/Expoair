@@ -27,7 +27,7 @@ export const Forecast: React.FC = () => {
   useEffect(() => {
     const fetchMLStatus = async () => {
       try {
-        const baseUrl = import.meta.env.VITE_API_URL || "http://localhost:8000";
+        const baseUrl = "https://expoair-airsense.onrender.com";
         const response = await fetch(`${baseUrl}/api/admin/model-status`);
         if (response.ok) {
           const data = await response.json();
