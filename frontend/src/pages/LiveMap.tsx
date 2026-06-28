@@ -1,277 +1,251 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect } from "react";
+import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from "react-leaflet";
 import { apiService } from "../services/api";
-import { Crosshair, MapPin, RefreshCw } from "lucide-react";
+import { Crosshair, RefreshCw, MapPin } from "lucide-react";
+import "leaflet/dist/leaflet.css";
 
+// ── City centre presets ──────────────────────────────────────────────────────
+const CITIES = [
+  { name: "Delhi",    lat: 28.6139, lng: 77.2090, zoom: 11 },
+  { name: "Pune",     lat: 18.5204, lng: 73.8567, zoom: 12 },
+  { name: "PCMC",     lat: 18.6298, lng: 73.7997, zoom: 12 },
+  { name: "Lonavala", lat: 18.7490, lng: 73.4070, zoom: 13 },
+];
+
+// ── AQI colour helpers ───────────────────────────────────────────────────────
+function aqiColor(aqi: number): string {
+  if (aqi <= 50)  return "#10b981";  // Good — emerald
+  if (aqi <= 100) return "#f59e0b";  // Moderate — amber
+  if (aqi <= 200) return "#ef4444";  // Unhealthy — red
+  if (aqi <= 300) return "#8b5cf6";  // Very unhealthy — purple
+  return "#6b21a8";                   // Hazardous — deep purple
+}
+
+function aqiLabel(aqi: number): string {
+  if (aqi <= 50)  return "Good";
+  if (aqi <= 100) return "Moderate";
+  if (aqi <= 200) return "Unhealthy";
+  if (aqi <= 300) return "Very Unhealthy";
+  return "Hazardous";
+}
+
+// ── Map auto-recenter on city change ─────────────────────────────────────────
+function MapController({ center, zoom }: { center: [number, number]; zoom: number }) {
+  const map = useMap();
+  useEffect(() => { map.setView(center, zoom, { animate: true }); }, [center, zoom]);
+  return null;
+}
+
+// ── Main Component ────────────────────────────────────────────────────────────
 export const LiveMap: React.FC = () => {
   const [heatmapData, setHeatmapData] = useState<any[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [selectedPoint, setSelectedPoint] = useState<any>(null);
-  
-  // Grid location (default Pune / Anand Vihar area coords)
-  const mapCenter = { lat: 28.63, lng: 77.22 };
-  
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [loading, setLoading]         = useState(true);
+  const [selectedCity, setSelectedCity] = useState(CITIES[0]);   // Delhi default
 
   const fetchHeatmap = async () => {
     setLoading(true);
-    const data = await apiService.getHeatmap(mapCenter.lat, mapCenter.lng);
-    setHeatmapData(data);
+    try {
+      const data = await apiService.getHeatmap(selectedCity.lat, selectedCity.lng);
+      setHeatmapData(data);
+    } catch {
+      setHeatmapData([]);
+    }
     setLoading(false);
   };
 
-  useEffect(() => {
-    fetchHeatmap();
-  }, [mapCenter]);
+  useEffect(() => { fetchHeatmap(); }, [selectedCity]);
 
-  // Render heat contours on canvas
-  useEffect(() => {
-    if (!canvasRef.current || heatmapData.length === 0) return;
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+  // Only show points near the selected city (within ~120 km)
+  const visiblePoints = heatmapData.filter((p) => {
+    const dlat = p.lat - selectedCity.lat;
+    const dlng = p.lng - selectedCity.lng;
+    return Math.sqrt(dlat * dlat + dlng * dlng) < 1.5;
+  });
 
-    // Clear canvas
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    // Draw stylized background grid lines
-    ctx.strokeStyle = "rgba(100, 116, 139, 0.08)";
-    ctx.lineWidth = 1;
-    const gridSpacing = 40;
-    for (let x = 0; x < canvas.width; x += gridSpacing) {
-      ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, canvas.height);
-      ctx.stroke();
-    }
-    for (let y = 0; y < canvas.height; y += gridSpacing) {
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(canvas.width, y);
-      ctx.stroke();
-    }
-
-    // Map latitude/longitude to canvas XY coords
-    // Let's establish bounding box based on coordinates
-    const lats = heatmapData.map(p => p.lat);
-    const lngs = heatmapData.map(p => p.lng);
-    const minLat = Math.min(...lats) - 0.05;
-    const maxLat = Math.max(...lats) + 0.05;
-    const minLng = Math.min(...lngs) - 0.05;
-    const maxLng = Math.max(...lngs) + 0.05;
-
-    const getXY = (lat: number, lng: number) => {
-      const x = ((lng - minLng) / (maxLng - minLng)) * canvas.width;
-      const y = canvas.height - ((lat - minLat) / (maxLat - minLat)) * canvas.height; // invert Y
-      return { x, y };
-    };
-
-    // Draw radial dispersion gradients (pollution contours)
-    heatmapData.forEach(pt => {
-      const { x, y } = getXY(pt.lat, pt.lng);
-      const radius = 90; // dispersion size
-      
-      const grad = ctx.createRadialGradient(x, y, 2, x, y, radius);
-      
-      // Map AQI color scale
-      let col = "0, 228, 0"; // Good green
-      if (pt.aqi > 150) col = "139, 92, 246"; // Hazardous purple
-      else if (pt.aqi > 100) col = "239, 68, 68"; // Unhealthy red
-      else if (pt.aqi > 50) col = "245, 158, 11"; // Moderate amber
-      
-      grad.addColorStop(0, `rgba(${col}, ${pt.weight * 0.4})`);
-      grad.addColorStop(0.5, `rgba(${col}, ${pt.weight * 0.15})`);
-      grad.addColorStop(1, `rgba(${col}, 0)`);
-      
-      ctx.fillStyle = grad;
-      ctx.beginPath();
-      ctx.arc(x, y, radius, 0, 2 * Math.PI);
-      ctx.fill();
-    });
-
-    // Draw point markers
-    heatmapData.forEach(pt => {
-      const { x, y } = getXY(pt.lat, pt.lng);
-      
-      let baseCol = "#10b981";
-      if (pt.aqi > 150) baseCol = "#8b5cf6";
-      else if (pt.aqi > 100) baseCol = "#ef4444";
-      else if (pt.aqi > 50) baseCol = "#f59e0b";
-
-      // Outer rings
-      ctx.strokeStyle = `${baseCol}50`;
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.arc(x, y, 10, 0, 2 * Math.PI);
-      ctx.stroke();
-
-      // Inner core
-      ctx.fillStyle = baseCol;
-      ctx.beginPath();
-      ctx.arc(x, y, 4, 0, 2 * Math.PI);
-      ctx.fill();
-    });
-
-  }, [heatmapData]);
-
-  // Click handler to match canvas coordinates to nearest data point
-  const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!canvasRef.current || heatmapData.length === 0) return;
-    const canvas = canvasRef.current;
-    const rect = canvas.getBoundingClientRect();
-    const clickX = e.clientX - rect.left;
-    const clickY = e.clientY - rect.top;
-
-    const lats = heatmapData.map(p => p.lat);
-    const lngs = heatmapData.map(p => p.lng);
-    const minLat = Math.min(...lats) - 0.05;
-    const maxLat = Math.max(...lats) + 0.05;
-    const minLng = Math.min(...lngs) - 0.05;
-    const maxLng = Math.max(...lngs) + 0.05;
-
-    let nearestPt = null;
-    let minDist = 40; // max pixel threshold distance
-
-    heatmapData.forEach(pt => {
-      const x = ((pt.lng - minLng) / (maxLng - minLng)) * canvas.width;
-      const y = canvas.height - ((pt.lat - minLat) / (maxLat - minLat)) * canvas.height;
-      
-      const dist = Math.sqrt((x - clickX) ** 2 + (y - clickY) ** 2);
-      if (dist < minDist) {
-        minDist = dist;
-        nearestPt = pt;
-      }
-    });
-
-    if (nearestPt) {
-      setSelectedPoint(nearestPt);
-    } else {
-      setSelectedPoint(null);
-    }
-  };
-
-  const getAqiColor = (aqi: number) => {
-    if (aqi < 50) return "text-emerald-500 bg-emerald-500/10 border-emerald-500/20";
-    if (aqi < 100) return "text-amber-500 bg-amber-500/10 border-amber-500/20";
-    if (aqi < 150) return "text-red-500 bg-red-500/10 border-red-500/20";
-    return "text-purple-500 bg-purple-500/10 border-purple-500/20";
-  };
+  // Station-only points (those with a station_name)
+  const stationPoints = visiblePoints.filter((p) => p.station_name);
 
   return (
-    <div className="space-y-6 text-left">
+    <div className="space-y-4 text-left">
+      {/* Header bar */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-card p-4 rounded-2xl border border-border shadow-sm">
         <div>
-          <h2 className="text-xl font-bold tracking-tight">Geospatial AQI Heatmap</h2>
-          <p className="text-xs text-muted-foreground">Interactive spatial dispersion grids & air quality contours</p>
+          <h2 className="text-xl font-bold tracking-tight">Live AQI Map</h2>
+          <p className="text-xs text-muted-foreground">
+            Real-time air quality monitoring stations — OpenAQ + Local IoT Network
+          </p>
         </div>
 
-        <div className="flex items-center gap-2">
-          <button 
-            onClick={fetchHeatmap} 
-            className="p-2 bg-muted hover:bg-muted/80 border border-border rounded-xl text-muted-foreground hover:text-foreground transition-all"
-            title="Refresh Grid Data"
-          >
-            <RefreshCw className="w-4 h-4" />
-          </button>
-          
-          <div className="flex items-center gap-1.5 bg-muted px-3 py-1.5 rounded-xl border border-border text-xs font-semibold">
-            <Crosshair className="w-3.5 h-3.5" />
-            <span>Center: {mapCenter.lat.toFixed(2)}, {mapCenter.lng.toFixed(2)}</span>
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* City picker */}
+          <div className="flex gap-1 bg-muted p-1 rounded-xl border border-border">
+            {CITIES.map((c) => (
+              <button
+                key={c.name}
+                onClick={() => setSelectedCity(c)}
+                className={`text-xs px-3 py-1.5 rounded-lg font-semibold transition-all ${
+                  selectedCity.name === c.name
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {c.name}
+              </button>
+            ))}
           </div>
+
+          <button
+            onClick={fetchHeatmap}
+            className="p-2 bg-muted hover:bg-muted/80 border border-border rounded-xl text-muted-foreground hover:text-foreground transition-all"
+            title="Refresh data"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
+          </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-        {/* Map Canvas HUD */}
-        <div className="lg:col-span-3 bg-card p-4 rounded-3xl border border-border shadow-sm flex items-center justify-center relative min-h-[450px]">
-          {loading && (
-            <div className="absolute inset-0 bg-background/80 flex items-center justify-center z-10 rounded-3xl">
-              <div className="text-sm font-semibold flex items-center gap-2">
-                <RefreshCw className="w-4 h-4 animate-spin text-blue-500" />
-                Updating pollution layers...
-              </div>
-            </div>
-          )}
+      {/* Map + legend grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+        {/* Leaflet Map */}
+        <div className="lg:col-span-3 rounded-3xl overflow-hidden border border-border shadow-sm" style={{ height: 500 }}>
+          <MapContainer
+            center={[selectedCity.lat, selectedCity.lng]}
+            zoom={selectedCity.zoom}
+            style={{ height: "100%", width: "100%" }}
+            scrollWheelZoom
+          >
+            <TileLayer
+              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+              attribution='&copy; <a href="https://openstreetmap.org">OpenStreetMap</a> contributors'
+            />
+            <MapController center={[selectedCity.lat, selectedCity.lng]} zoom={selectedCity.zoom} />
 
-          {/* Canvas for rendering vector contours */}
-          <canvas 
-            ref={canvasRef}
-            width={650}
-            height={400}
-            onClick={handleCanvasClick}
-            className="w-full h-auto bg-slate-50 dark:bg-slate-950/40 rounded-2xl border border-border/80 cursor-crosshair max-w-full"
-          />
+            {/* Heatmap blob (large semi-transparent circles) */}
+            {visiblePoints.map((pt, idx) => (
+              <CircleMarker
+                key={`blob-${idx}`}
+                center={[pt.lat, pt.lng]}
+                radius={60}
+                pathOptions={{
+                  color: "transparent",
+                  fillColor: aqiColor(pt.aqi),
+                  fillOpacity: 0.06 + pt.weight * 0.10,
+                }}
+              />
+            ))}
 
-          {/* Compass Rose HUD helper */}
-          <div className="absolute right-8 bottom-8 pointer-events-none select-none flex flex-col items-center">
-            <div className="w-10 h-10 rounded-full border border-border bg-card/80 flex items-center justify-center shadow-md">
-              <span className="font-bold text-xs text-muted-foreground">N</span>
-            </div>
-          </div>
+            {/* Station markers (only named stations) */}
+            {stationPoints.map((pt, idx) => (
+              <CircleMarker
+                key={`station-${idx}`}
+                center={[pt.lat, pt.lng]}
+                radius={10}
+                pathOptions={{
+                  color: aqiColor(pt.aqi),
+                  fillColor: aqiColor(pt.aqi),
+                  fillOpacity: 0.9,
+                  weight: 2,
+                }}
+              >
+                <Popup>
+                  <div className="min-w-[180px] space-y-1.5 text-sm font-sans">
+                    <div className="font-bold text-base leading-tight">{pt.station_name}</div>
+                    <div className="text-xs text-gray-500">{pt.city}</div>
+                    <div
+                      className="text-2xl font-extrabold"
+                      style={{ color: aqiColor(pt.aqi) }}
+                    >
+                      AQI {Math.round(pt.aqi)}
+                    </div>
+                    <div
+                      className="text-xs font-semibold px-2 py-0.5 rounded-full inline-block text-white"
+                      style={{ backgroundColor: aqiColor(pt.aqi) }}
+                    >
+                      {aqiLabel(pt.aqi)}
+                    </div>
+                    <div className="text-xs text-gray-400 pt-1">
+                      {pt.lat.toFixed(4)}°N, {pt.lng.toFixed(4)}°E
+                    </div>
+                  </div>
+                </Popup>
+              </CircleMarker>
+            ))}
+          </MapContainer>
         </div>
 
-        {/* Info panel */}
-        <div className="space-y-6">
-          {/* Selected Station Popout */}
-          <div className="bg-card p-5 rounded-3xl border border-border shadow-sm space-y-4">
-            <h3 className="font-bold text-sm uppercase tracking-wider text-muted-foreground">Inspection Details</h3>
-            
-            {selectedPoint ? (
-              <div className="space-y-4">
-                <div className="flex items-start gap-2.5">
-                  <MapPin className="w-5 h-5 text-blue-500 mt-0.5 shrink-0" />
-                  <div>
-                    <h4 className="font-bold text-sm">Grid Node Station</h4>
-                    <p className="text-[11px] text-muted-foreground">Coords: {selectedPoint.lat.toFixed(4)}, {selectedPoint.lng.toFixed(4)}</p>
-                  </div>
-                </div>
-
-                <div className="flex items-baseline gap-2">
-                  <span className="text-4xl font-extrabold tracking-tight">{Math.round(selectedPoint.aqi)}</span>
-                  <span className={`text-xs px-2.5 py-0.5 rounded-full border font-bold uppercase ${getAqiColor(selectedPoint.aqi)}`}>
-                    AQI Value
-                  </span>
-                </div>
-
-                <div className="space-y-2 text-xs border-t border-border pt-3">
+        {/* Side panel */}
+        <div className="space-y-4">
+          {/* Stats */}
+          <div className="bg-card p-5 rounded-3xl border border-border shadow-sm space-y-3">
+            <h3 className="font-bold text-sm uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+              <MapPin className="w-4 h-4 text-blue-500" /> {selectedCity.name} Overview
+            </h3>
+            <div className="space-y-2 text-xs">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Stations visible</span>
+                <span className="font-bold">{stationPoints.length}</span>
+              </div>
+              {stationPoints.length > 0 && (
+                <>
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Concentration Weight</span>
-                    <span className="font-semibold">{Math.round(selectedPoint.weight * 100)}%</span>
+                    <span className="text-muted-foreground">Mean AQI</span>
+                    <span className="font-bold">
+                      {Math.round(stationPoints.reduce((a, b) => a + b.aqi, 0) / stationPoints.length)}
+                    </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Dispersion Status</span>
-                    <span className="font-semibold text-emerald-500">Active</span>
+                    <span className="text-muted-foreground">Peak AQI</span>
+                    <span className="font-bold" style={{ color: aqiColor(Math.max(...stationPoints.map((p) => p.aqi))) }}>
+                      {Math.round(Math.max(...stationPoints.map((p) => p.aqi)))}
+                    </span>
                   </div>
-                </div>
-              </div>
-            ) : (
-              <div className="p-6 border border-dashed border-border rounded-2xl text-center space-y-2">
-                <Crosshair className="w-8 h-8 mx-auto text-muted-foreground/60" />
-                <p className="text-xs text-muted-foreground">Click on any contour focal node on the map to query grid telemetry details</p>
-              </div>
-            )}
+                </>
+              )}
+            </div>
           </div>
 
-          {/* Map legend */}
-          <div className="bg-card p-5 rounded-3xl border border-border shadow-sm space-y-3.5">
-            <h3 className="font-bold text-sm uppercase tracking-wider text-muted-foreground">Map Legend</h3>
-            <div className="space-y-2.5 text-xs font-medium">
-              <div className="flex items-center gap-3">
-                <div className="w-3.5 h-3.5 rounded-full bg-emerald-500/20 border border-emerald-500" />
-                <span>Good (0 - 50)</span>
+          {/* Station list */}
+          <div className="bg-card p-5 rounded-3xl border border-border shadow-sm space-y-2.5 max-h-72 overflow-y-auto">
+            <h3 className="font-bold text-xs uppercase tracking-wider text-muted-foreground sticky top-0 bg-card pb-1">
+              Stations
+            </h3>
+            {stationPoints.length === 0 && (
+              <p className="text-xs text-muted-foreground">
+                No stations near {selectedCity.name}. Try seeding the database via Admin Panel.
+              </p>
+            )}
+            {stationPoints.map((pt, idx) => (
+              <div key={idx} className="flex items-center justify-between p-2.5 bg-muted/40 rounded-xl border border-border/60 text-xs">
+                <div className="space-y-0.5 min-w-0 flex-1">
+                  <p className="font-semibold truncate">{pt.station_name}</p>
+                  <p className="text-muted-foreground text-[10px]">{pt.city}</p>
+                </div>
+                <span
+                  className="text-xs font-extrabold ml-2 shrink-0 px-2 py-0.5 rounded-full text-white"
+                  style={{ backgroundColor: aqiColor(pt.aqi) }}
+                >
+                  {Math.round(pt.aqi)}
+                </span>
               </div>
-              <div className="flex items-center gap-3">
-                <div className="w-3.5 h-3.5 rounded-full bg-amber-500/20 border border-amber-500" />
-                <span>Moderate (51 - 100)</span>
+            ))}
+          </div>
+
+          {/* AQI Legend */}
+          <div className="bg-card p-5 rounded-3xl border border-border shadow-sm space-y-2.5">
+            <h3 className="font-bold text-xs uppercase tracking-wider text-muted-foreground">Legend</h3>
+            {[
+              { label: "Good",            range: "0–50",   color: "#10b981" },
+              { label: "Moderate",        range: "51–100", color: "#f59e0b" },
+              { label: "Unhealthy",       range: "101–200",color: "#ef4444" },
+              { label: "Very Unhealthy",  range: "201–300",color: "#8b5cf6" },
+              { label: "Hazardous",       range: "300+",   color: "#6b21a8" },
+            ].map((l) => (
+              <div key={l.label} className="flex items-center gap-2.5 text-xs font-medium">
+                <span className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: l.color }} />
+                <span>{l.label}</span>
+                <span className="text-muted-foreground ml-auto">{l.range}</span>
               </div>
-              <div className="flex items-center gap-3">
-                <div className="w-3.5 h-3.5 rounded-full bg-red-500/20 border border-red-500" />
-                <span>Unhealthy (101 - 150)</span>
-              </div>
-              <div className="flex items-center gap-3">
-                <div className="w-3.5 h-3.5 rounded-full bg-purple-500/20 border border-purple-500" />
-                <span>Hazardous (150+)</span>
-              </div>
-            </div>
+            ))}
           </div>
         </div>
       </div>

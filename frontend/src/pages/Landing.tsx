@@ -1,118 +1,144 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { apiService } from "../services/api";
-import { Wind, Route, HeartPulse, BrainCircuit, ArrowRight } from "lucide-react";
+import { Wind, Route, HeartPulse, BrainCircuit, ArrowRight, Info, X } from "lucide-react";
 
 interface LandingProps {
   setCurrentPage: (page: string) => void;
-  setUserRole: (role: string) => void;
+  setUserRole:    (role: string) => void;
 }
 
 export const Landing: React.FC<LandingProps> = ({ setCurrentPage, setUserRole }) => {
   const [stations, setStations] = useState<any[]>([]);
-  const [email, setEmail] = useState("");
+  const [email,    setEmail]    = useState("");
   const [password, setPassword] = useState("");
-  const [isLogin, setIsLogin] = useState(true);
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [isLogin,  setIsLogin]  = useState(true);
+  const [error,    setError]    = useState("");
+  const [loading,  setLoading]  = useState(false);
+  const [showAuth, setShowAuth] = useState(false);
 
   useEffect(() => {
     // Fetch live stations for the ticker
-    const loadStations = async () => {
-      const data = await apiService.getStations();
-      const stationsWithAqi = await Promise.all(
-        data.map(async (s) => {
-          const live = await apiService.getLiveAQI(s.latitude, s.longitude);
-          return { ...s, aqi: live.aqi };
-        })
-      );
-      setStations(stationsWithAqi);
+    const load = async () => {
+      try {
+        const data = await apiService.getLiveStations();
+        setStations(data.filter((s: any) => s.aqi != null));
+      } catch {
+        // try fallback
+        try {
+          const data = await apiService.getStations();
+          const withAqi = await Promise.all(
+            data.slice(0, 6).map(async (s: any) => {
+              try {
+                const live = await apiService.getLiveAQI(s.latitude, s.longitude);
+                return { ...s, aqi: live.aqi, city: s.name.includes("Delhi") ? "Delhi" : "Pune" };
+              } catch { return { ...s, aqi: null }; }
+            })
+          );
+          setStations(withAqi.filter((s) => s.aqi != null));
+        } catch { }
+      }
     };
-    loadStations();
+    load();
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError("");
-    setLoading(true);
+    setError(""); setLoading(true);
     try {
-      if (isLogin) {
-        const res = await apiService.login(email, password);
-        localStorage.setItem("token", res.access_token);
-        setUserRole(res.role);
-      } else {
-        const res = await apiService.signup(email, password);
-        localStorage.setItem("token", res.access_token);
-        setUserRole(res.role);
-      }
+      const res = isLogin
+        ? await apiService.login(email, password)
+        : await apiService.signup(email, password);
+      localStorage.setItem("token", res.access_token);
+      setUserRole(res.role);
       setCurrentPage("dashboard");
     } catch (err: any) {
-      setError(err.message || "Authentication failed. Try again.");
-    } finally {
-      setLoading(false);
-    }
+      setError(err.message || "Authentication failed. Please try again.");
+    } finally { setLoading(false); }
   };
 
-  const getAqiColorClass = (aqi: number) => {
-    if (aqi < 50) return "text-emerald-500 bg-emerald-500/10 border-emerald-500/25";
-    if (aqi < 100) return "text-amber-500 bg-amber-500/10 border-amber-500/25";
-    return "text-red-500 bg-red-500/10 border-red-500/25";
-  };
+  const aqiBadgeClass = (aqi: number) =>
+    aqi < 50  ? "text-emerald-500 bg-emerald-500/10 border-emerald-500/25" :
+    aqi < 100 ? "text-amber-500 bg-amber-500/10 border-amber-500/25" :
+    aqi < 200 ? "text-red-500 bg-red-500/10 border-red-500/25" :
+                "text-purple-500 bg-purple-500/10 border-purple-500/25";
 
   return (
     <div className="space-y-16 py-4">
       {/* Live AQI Ticker */}
       <div className="w-full overflow-hidden py-3 border-y border-border/80 bg-card/50 backdrop-blur-sm relative">
-        <div className="flex animate-[marquee_25s_linear_infinite] gap-12 whitespace-nowrap w-max px-6">
+        <div className="flex animate-[marquee_30s_linear_infinite] gap-10 whitespace-nowrap w-max px-6">
           {stations.length > 0 ? (
             [...stations, ...stations].map((s, idx) => (
               <div key={idx} className="inline-flex items-center gap-2">
-                <span className="text-sm font-semibold">{s.name.split(" ")[0]}</span>
-                <span className={`text-xs px-2 py-0.5 rounded-full border font-bold ${getAqiColorClass(s.aqi)}`}>
-                  AQI {s.aqi}
+                <span className="text-sm font-semibold truncate max-w-[140px]">
+                  {s.name?.split(" ").slice(0, 2).join(" ")}
+                </span>
+                <span className={`text-xs px-2 py-0.5 rounded-full border font-bold ${aqiBadgeClass(s.aqi)}`}>
+                  AQI {Math.round(s.aqi)}
                 </span>
               </div>
             ))
           ) : (
-            <div className="text-sm text-muted-foreground">Gathering live environmental feeds...</div>
+            <div className="text-sm text-muted-foreground px-4">
+              Gathering live environmental feeds — seed database via Admin Panel if empty…
+            </div>
           )}
         </div>
-        {/* CSS animation inline for Vite compatibility */}
         <style dangerouslySetInnerHTML={{ __html: `
           @keyframes marquee {
-            0% { transform: translate3d(0, 0, 0); }
-            100% { transform: translate3d(-50%, 0, 0); }
+            0%   { transform: translate3d(0,0,0); }
+            100% { transform: translate3d(-50%,0,0); }
           }
         `}} />
       </div>
 
-      {/* Hero Section */}
+      {/* Hero */}
       <div className="grid md:grid-cols-2 gap-12 items-center">
         <div className="space-y-6 text-left">
           <div className="inline-flex items-center gap-2 bg-blue-500/10 dark:bg-emerald-500/10 text-blue-600 dark:text-emerald-400 px-3 py-1.5 rounded-full text-xs font-semibold border border-blue-500/20 dark:border-emerald-500/20">
             <Wind className="w-4 h-4 animate-pulse" />
-            Next-Gen Environmental Decision Support System (EDSS)
+            Environmental Decision Support System (EDSS)
           </div>
-          <h1 className="text-4xl md:text-6xl font-extrabold tracking-tight leading-[1.1] text-foreground">
+          <h1 className="text-4xl md:text-6xl font-extrabold tracking-tight leading-[1.1]">
             AirSense AI
             <span className="block mt-2 text-2xl md:text-4xl font-semibold bg-gradient-to-r from-blue-500 to-emerald-500 bg-clip-text text-transparent">
               Predict. Understand. Breathe Better.
             </span>
           </h1>
           <p className="text-muted-foreground text-lg max-w-xl">
-            Beyond standard AQI dashboards, AirSense AI fuses real-time data to estimate exposure, compute low-pollution transit, evaluate health risks, and explain forecasts.
+            Real-time AQI data from Delhi, Pune, PCMC & Lonavala — fused with LSTM forecasts,
+            SHAP explainability, health risk scoring, and low-pollution route planning.
           </p>
-          <div className="flex gap-4">
-            <button 
+
+          <div className="flex flex-wrap gap-3">
+            <button
               onClick={() => setCurrentPage("dashboard")}
               className="bg-blue-600 dark:bg-emerald-500 hover:opacity-90 text-white font-medium px-6 py-3 rounded-xl shadow-md flex items-center gap-2 group transition-all"
             >
               Explore Dashboard
               <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
             </button>
+            <button
+              onClick={() => setShowAuth(true)}
+              className="border border-border bg-muted hover:bg-card text-foreground font-medium px-6 py-3 rounded-xl transition-all text-sm flex items-center gap-2"
+            >
+              Sign In / Register
+              <Info className="w-4 h-4 text-muted-foreground" />
+            </button>
+          </div>
+
+          {/* Why sign in? */}
+          <div className="flex items-start gap-2 p-3 bg-muted/50 border border-border rounded-xl text-xs text-muted-foreground max-w-md">
+            <Info className="w-4 h-4 shrink-0 mt-0.5 text-blue-500" />
+            <span>
+              <strong>Why create an account?</strong> Sign in to save your personal health profile
+              (asthma, age group, cardiovascular risk), track cumulative exposure history, and receive
+              personalised route recommendations. All platform features work without an account.
+            </span>
           </div>
         </div>
 
-        {/* Animated Earth Graphic */}
+        {/* Animated globe */}
         <div className="flex justify-center relative select-none">
           <div className="w-72 h-72 md:w-96 md:h-96 rounded-full bg-gradient-to-br from-blue-600/15 to-emerald-500/15 border-2 border-border/40 flex items-center justify-center relative shadow-2xl">
             <div className="absolute inset-0 rounded-full bg-gradient-to-tr from-blue-500/10 via-transparent to-emerald-500/10 animate-pulse" />
@@ -126,100 +152,99 @@ export const Landing: React.FC<LandingProps> = ({ setCurrentPage, setUserRole })
             <div className="absolute flex flex-col items-center text-center">
               <Wind className="w-10 h-10 text-blue-600 dark:text-emerald-400 mb-2" />
               <span className="font-bold text-lg">AI Fusion</span>
-              <span className="text-xs text-muted-foreground">Global Environmental Index</span>
+              <span className="text-xs text-muted-foreground">Delhi · Pune · PCMC · Lonavala</span>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Feature Cards Grid */}
+      {/* Feature cards */}
       <div className="space-y-6">
         <h2 className="text-2xl md:text-3xl font-bold tracking-tight text-center">Platform Capabilities</h2>
         <div className="grid md:grid-cols-3 gap-6">
-          <div className="p-6 rounded-2xl border border-border bg-card/40 hover:border-blue-500/30 dark:hover:border-emerald-500/30 hover:bg-card/70 transition-all text-left space-y-4">
-            <div className="w-12 h-12 rounded-xl bg-blue-500/10 dark:bg-emerald-500/10 text-blue-600 dark:text-emerald-400 flex items-center justify-center">
-              <BrainCircuit className="w-6 h-6" />
+          {[
+            {
+              icon: BrainCircuit, title: "XAI Forecasting",
+              desc: "LSTM sequence model predicts AQI at 1h, 3h, 6h, 12h, 24h horizons. Interactive SHAP sliders let you see how PM2.5, wind speed, and traffic each shift the prediction.",
+            },
+            {
+              icon: HeartPulse, title: "Health Assessment",
+              desc: "Personalised risk scoring for asthmatics, children, seniors, and cardio-sensitive groups. Includes safe exercise window advisory based on current AQI.",
+            },
+            {
+              icon: Route, title: "Low-Pollution Routes",
+              desc: "Compare Shortest / Fastest / Cleanest / Balanced commute alternatives. Each route samples AQI from monitoring stations along the path. Exposure score = time × AQI/100.",
+            },
+          ].map(({ icon: Icon, title, desc }) => (
+            <div key={title} className="p-6 rounded-2xl border border-border bg-card/40 hover:border-blue-500/30 dark:hover:border-emerald-500/30 hover:bg-card/70 transition-all text-left space-y-4">
+              <div className="w-12 h-12 rounded-xl bg-blue-500/10 dark:bg-emerald-500/10 text-blue-600 dark:text-emerald-400 flex items-center justify-center">
+                <Icon className="w-6 h-6" />
+              </div>
+              <h3 className="text-xl font-bold">{title}</h3>
+              <p className="text-sm text-muted-foreground">{desc}</p>
             </div>
-            <h3 className="text-xl font-bold">XAI Forecasting</h3>
-            <p className="text-sm text-muted-foreground">
-              Predict pollution levels using LSTM, XGBoost, and Random Forest. Examine feature contributions directly using interactive SHAP metrics.
-            </p>
-          </div>
-          <div className="p-6 rounded-2xl border border-border bg-card/40 hover:border-blue-500/30 dark:hover:border-emerald-500/30 hover:bg-card/70 transition-all text-left space-y-4">
-            <div className="w-12 h-12 rounded-xl bg-blue-500/10 dark:bg-emerald-500/10 text-blue-600 dark:text-emerald-400 flex items-center justify-center">
-              <HeartPulse className="w-6 h-6" />
-            </div>
-            <h3 className="text-xl font-bold">Health Assessment</h3>
-            <p className="text-sm text-muted-foreground">
-              Personalized risk scoring modeled on Apple Health style. Tailored advice for asthmatics, children, seniors, and cardio-sensitive groups.
-            </p>
-          </div>
-          <div className="p-6 rounded-2xl border border-border bg-card/40 hover:border-blue-500/30 dark:hover:border-emerald-500/30 hover:bg-card/70 transition-all text-left space-y-4">
-            <div className="w-12 h-12 rounded-xl bg-blue-500/10 dark:bg-emerald-500/10 text-blue-600 dark:text-emerald-400 flex items-center justify-center">
-              <Route className="w-6 h-6" />
-            </div>
-            <h3 className="text-xl font-bold">Low-Pollution Routes</h3>
-            <p className="text-sm text-muted-foreground">
-              Compare transit lines not just by travel speed, but by cumulative PM2.5 inhalation risk. Navigate safely and breathe cleaner.
-            </p>
-          </div>
+          ))}
         </div>
       </div>
 
-      {/* Auth Panel */}
-      <div className="max-w-md mx-auto p-8 rounded-3xl border border-border bg-card shadow-lg space-y-6">
-        <div className="text-center space-y-2">
-          <h3 className="text-2xl font-bold">{isLogin ? "Sign In" : "Create Account"}</h3>
-          <p className="text-sm text-muted-foreground">
-            {isLogin ? "Access your personal EDSS profile" : "Register to start mapping exposure and routing"}
-          </p>
-        </div>
-
-        {error && <div className="text-sm p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive font-medium">{error}</div>}
-
-        <form onSubmit={handleSubmit} className="space-y-4 text-left">
-          <div className="space-y-1.5">
-            <label className="text-xs font-semibold text-muted-foreground">EMAIL ADDRESS</label>
-            <input 
-              type="email" 
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="e.g. user@airsense.ai" 
-              className="w-full px-4 py-2.5 rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-emerald-500 text-sm transition-all"
-              required
-            />
+      {/* Auth modal */}
+      {showAuth && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="max-w-md w-full p-8 rounded-3xl border border-border bg-card shadow-2xl space-y-6 relative">
+            <button onClick={() => setShowAuth(false)} className="absolute top-4 right-4 p-1.5 rounded-lg hover:bg-muted">
+              <X className="w-4 h-4 text-muted-foreground" />
+            </button>
+            <div className="text-center space-y-2">
+              <h3 className="text-2xl font-bold">{isLogin ? "Sign In" : "Create Account"}</h3>
+              <p className="text-sm text-muted-foreground">
+                {isLogin
+                  ? "Access your personal health profile & exposure history"
+                  : "Register to save routes, health profiles, and exposure tracking"}
+              </p>
+            </div>
+            {error && (
+              <div className="text-sm p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive font-medium">
+                {error}
+              </div>
+            )}
+            <form onSubmit={handleSubmit} className="space-y-4 text-left">
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-muted-foreground">EMAIL</label>
+                <input
+                  type="email" value={email} onChange={(e) => setEmail(e.target.value)}
+                  placeholder="user@airsense.ai" required
+                  className="w-full px-4 py-2.5 rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-muted-foreground">PASSWORD</label>
+                <input
+                  type="password" value={password} onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••" required
+                  className="w-full px-4 py-2.5 rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                />
+              </div>
+              <button
+                type="submit" disabled={loading}
+                className="w-full py-3 rounded-xl bg-blue-600 dark:bg-emerald-500 hover:opacity-95 text-white font-medium disabled:opacity-50 text-sm"
+              >
+                {loading ? "Authenticating…" : isLogin ? "Sign In" : "Register"}
+              </button>
+            </form>
+            <div className="text-center space-y-2">
+              <button
+                onClick={() => setIsLogin(!isLogin)}
+                className="text-xs text-blue-600 dark:text-emerald-400 font-semibold hover:underline"
+              >
+                {isLogin ? "New to AirSense? Register account" : "Already have an account? Sign in"}
+              </button>
+              <div className="text-[10px] text-muted-foreground">
+                Demo: admin@airsense.ai / admin123
+              </div>
+            </div>
           </div>
-
-          <div className="space-y-1.5">
-            <label className="text-xs font-semibold text-muted-foreground">PASSWORD</label>
-            <input 
-              type="password" 
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••" 
-              className="w-full px-4 py-2.5 rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-emerald-500 text-sm transition-all"
-              required
-            />
-          </div>
-
-          <button 
-            type="submit" 
-            disabled={loading}
-            className="w-full py-3 rounded-xl bg-blue-600 dark:bg-emerald-500 hover:opacity-95 text-white font-medium shadow-sm transition-all disabled:opacity-50 text-sm"
-          >
-            {loading ? "Authenticating..." : isLogin ? "Sign In" : "Register"}
-          </button>
-        </form>
-
-        <div className="text-center">
-          <button 
-            onClick={() => setIsLogin(!isLogin)}
-            className="text-xs text-blue-600 dark:text-emerald-400 font-semibold hover:underline"
-          >
-            {isLogin ? "New to AirSense AI? Register account" : "Already have an account? Sign in"}
-          </button>
         </div>
-      </div>
+      )}
     </div>
   );
 };

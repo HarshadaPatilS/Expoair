@@ -53,11 +53,18 @@ export const apiService = {
       return await request<any[]>("/aqi/stations");
     } catch {
       return [
-        { id: 1, name: "Sinhgad Institute IoT Station (Lonavala)", latitude: 18.7530, longitude: 73.4063 },
-        { id: 2, name: "Pune Central Environmental Hub", latitude: 18.5204, longitude: 73.8567 },
-        { id: 3, name: "Pimpri-Chinchwad PCMC Station", latitude: 18.6298, longitude: 73.7997 },
-        { id: 4, name: "Hinjewadi IT Park Monitor", latitude: 18.5912, longitude: 73.7389 }
+        { id: 1, name: "Delhi Anand Vihar CPCB Station",          latitude: 28.6469, longitude: 77.3164 },
+        { id: 2, name: "Pune Central Environmental Hub",           latitude: 18.5204, longitude: 73.8567 },
+        { id: 3, name: "Pimpri-Chinchwad PCMC Station",           latitude: 18.6298, longitude: 73.7997 },
+        { id: 4, name: "Sinhgad Institute IoT Station (Lonavala)",latitude: 18.7530, longitude: 73.4063 },
       ];
+    }
+  },
+  getLiveStations: async () => {
+    try {
+      return await request<any[]>("/aqi/stations/live");
+    } catch {
+      return [];
     }
   },
   getLiveAQI: async (lat: number, lng: number) => {
@@ -340,29 +347,34 @@ export const apiService = {
   },
 
   // Heatmap Data
-  getHeatmap: async (lat: number, lng: number, radiusKm: number = 20.0) => {
+  getHeatmap: async (lat: number, lng: number, radiusKm: number = 500.0) => {
     try {
       return await request<any[]>(`/maps/heatmap?lat=${lat}&lng=${lng}&radius_km=${radiusKm}`);
     } catch {
+      // All four cities fallback
       return [
-        { lat: 28.6476, lng: 77.3158, aqi: 155, weight: 0.8 },
-        { lat: 28.7501, lng: 77.1176, aqi: 95, weight: 0.5 },
-        { lat: 28.6358, lng: 77.1524, aqi: 120, weight: 0.6 },
-        { lat: 28.5704, lng: 77.0658, aqi: 110, weight: 0.55 },
-        // Surrounding dispersal points
-        { lat: 28.6476 + 0.015, lng: 77.3158 - 0.015, aqi: 135, weight: 0.65 },
-        { lat: 28.7501 - 0.015, lng: 77.1176 + 0.015, aqi: 85, weight: 0.4 },
-        { lat: 28.6358 + 0.025, lng: 77.1524 - 0.025, aqi: 105, weight: 0.5 },
-        { lat: 28.5704 - 0.025, lng: 77.0658 + 0.025, aqi: 95, weight: 0.45 }
+        { lat: 28.6469, lng: 77.3164, aqi: 180, weight: 0.9,  station_name: "Delhi Anand Vihar",  city: "Delhi"    },
+        { lat: 28.6280, lng: 77.2411, aqi: 165, weight: 0.85, station_name: "Delhi ITO",           city: "Delhi"    },
+        { lat: 28.7450, lng: 77.1218, aqi: 155, weight: 0.75, station_name: "Delhi Rohini",        city: "Delhi"    },
+        { lat: 18.5204, lng: 73.8567, aqi: 90,  weight: 0.45, station_name: "Pune Central Hub",    city: "Pune"     },
+        { lat: 18.5912, lng: 73.7389, aqi: 75,  weight: 0.38, station_name: "Hinjewadi IT Park",   city: "Pune"     },
+        { lat: 18.6298, lng: 73.7997, aqi: 110, weight: 0.55, station_name: "PCMC Pimpri",         city: "PCMC"     },
+        { lat: 18.6476, lng: 73.8536, aqi: 125, weight: 0.62, station_name: "Bhosari MIDC",        city: "PCMC"     },
+        { lat: 18.7530, lng: 73.4063, aqi: 35,  weight: 0.12, station_name: "Sinhgad Lonavala",    city: "Lonavala" },
       ];
     }
   },
 
-  // Admin Database Seeding
+  // Admin Operations
   seedDatabase: async () => {
-    return request<any>("/admin/seed", {
-      method: "POST"
-    });
-  }
+    return request<any>("/admin/seed", { method: "POST" });
+  },
+  getAdminStatus: async () => {
+    try {
+      return await request<any>("/admin/status");
+    } catch {
+      return null;
+    }
+  },
 };
 

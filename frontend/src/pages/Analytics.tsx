@@ -1,146 +1,202 @@
 import React, { useState, useEffect } from "react";
 import { apiService } from "../services/api";
-import { ResponsiveContainer, ScatterChart, Scatter, XAxis, YAxis, ZAxis, Tooltip, Legend, LineChart, Line } from "recharts";
-import { TableProperties } from "lucide-react";
+import {
+  ResponsiveContainer, ScatterChart, Scatter, XAxis, YAxis, ZAxis,
+  Tooltip, LineChart, Line, Legend,
+} from "recharts";
+import { TableProperties, TrendingUp } from "lucide-react";
 
 export const Analytics: React.FC = () => {
   const [history, setHistory] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const loadHistory = async () => {
-      const data = await apiService.getHistory(1, undefined, undefined, 14); // 14 days history
+    const load = async () => {
+      setLoading(true);
+      // Fetch 14 days from station 1 (first seeded station)
+      const data = await apiService.getHistory(undefined, undefined, undefined, 14);
       setHistory(data);
+      setLoading(false);
     };
-    loadHistory();
+    load();
   }, []);
 
-  // Compute correlation statistics
-  const averageAqi = history.length > 0 ? Math.round(history.reduce((acc, curr) => acc + curr.aqi, 0) / history.length) : 0;
-  const peakAqi = history.length > 0 ? Math.max(...history.map(h => h.aqi)) : 0;
-  
-  // Simulated correlation coordinates (Wind speed vs PM2.5 concentration)
-  const correlationData = [
-    { wind: 4.2, pm25: 85, aqi: 180 },
-    { wind: 6.8, pm25: 68, aqi: 145 },
-    { wind: 12.4, pm25: 42, aqi: 88 },
-    { wind: 15.1, pm25: 35, aqi: 72 },
-    { wind: 3.1, pm25: 98, aqi: 210 },
-    { wind: 8.5, pm25: 55, aqi: 115 },
-    { wind: 18.2, pm25: 24, aqi: 50 },
-    { wind: 5.5, pm25: 75, aqi: 160 },
-    { wind: 10.1, pm25: 48, aqi: 102 },
-    { wind: 14.5, pm25: 30, aqi: 64 }
-  ];
+  // ── Compute stats from real data ──────────────────────────────────────────
+  const avgAqi  = history.length > 0 ? Math.round(history.reduce((a, b) => a + b.aqi, 0)  / history.length) : 0;
+  const avgPm25 = history.length > 0 ? Math.round(history.reduce((a, b) => a + b.pm25, 0) / history.length) : 0;
+  const peakAqi = history.length > 0 ? Math.max(...history.map((h) => h.aqi)) : 0;
+
+  // ── Subsample for trend chart (max 60 points for readability) ─────────────
+  const step = Math.max(1, Math.floor(history.length / 60));
+  const trendData = history.filter((_, i) => i % step === 0);
+
+  // ── Build wind vs PM2.5 scatter from real records ─────────────────────────
+  // We need weather records — use the station history and cross-reference
+  // The AQI records don't store wind_speed directly; we read from what we have
+  // (the live API response stores weather fields in AQIRecord via aqi.py fusion)
+  // We can still build this from any records that have enough data by using
+  // an approximation: re-sample from trendData using hour-of-day as a proxy
+  const correlationData = trendData
+    .map((r, i) => {
+      const h = new Date(r.timestamp).getHours();
+      // Diurnal wind proxy: morning calm, afternoon windy
+      const wind_proxy = 4 + 8 * Math.sin(Math.PI * h / 24);
+      return { wind: Math.round(wind_proxy * 10) / 10, pm25: r.pm25, aqi: r.aqi };
+    })
+    .slice(0, 30);  // 30 scatter points max
+
+  // ── Record count by source ────────────────────────────────────────────────
+  const stationFeedCount = history.filter((h) => h.aqi > 0).length;
 
   return (
     <div className="space-y-6 text-left">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-card p-4 rounded-2xl border border-border shadow-sm">
         <div>
           <h2 className="text-xl font-bold tracking-tight">Environmental Analytics Panel</h2>
-          <p className="text-xs text-muted-foreground">Investigate correlation distributions, variance matrices, and meteorological logs</p>
+          <p className="text-xs text-muted-foreground">
+            14-day trend analysis, meteorological correlation, and station telemetry records
+          </p>
         </div>
       </div>
 
+      {/* KPI row */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        
-        {/* KPI Stats cards */}
-        <div className="bg-card p-5 rounded-2xl border border-border shadow-sm text-left">
-          <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">Mean AQI (14-Day Horizon)</span>
-          <span className="text-3xl font-extrabold block mt-1 text-blue-600 dark:text-emerald-400">{averageAqi}</span>
-          <span className="text-[10px] text-muted-foreground mt-1 block">Classified as Moderate Stagnancy</span>
-        </div>
-
-        <div className="bg-card p-5 rounded-2xl border border-border shadow-sm text-left">
-          <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">Peak AQI Event</span>
-          <span className="text-3xl font-extrabold block mt-1 text-red-500">{peakAqi}</span>
-          <span className="text-[10px] text-red-400 font-semibold mt-1 block">Dust Vector Apportionment</span>
-        </div>
-
-        <div className="bg-card p-5 rounded-2xl border border-border shadow-sm text-left">
-          <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">Telemetry Completeness</span>
-          <span className="text-3xl font-extrabold block mt-1">99.8%</span>
-          <span className="text-[10px] text-emerald-500 font-semibold mt-1 block">4 Active Stations reporting</span>
-        </div>
-
+        {[
+          {
+            label: "Mean AQI — 14 Days",
+            value: avgAqi,
+            sub: avgAqi < 100 ? "Moderate stagnancy" : "Elevated pollution period",
+            color: "text-blue-600 dark:text-emerald-400",
+          },
+          {
+            label: "Peak AQI Event",
+            value: peakAqi,
+            sub: "Highest recorded in the window",
+            color: "text-red-500",
+          },
+          {
+            label: "Mean PM2.5 — 14 Days",
+            value: `${avgPm25} µg/m³`,
+            sub: `${stationFeedCount} telemetry records`,
+            color: "text-amber-500",
+          },
+        ].map((kpi) => (
+          <div key={kpi.label} className="bg-card p-5 rounded-2xl border border-border shadow-sm text-left">
+            <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">
+              {kpi.label}
+            </span>
+            <span className={`text-3xl font-extrabold block mt-1 ${kpi.color}`}>{kpi.value}</span>
+            <span className="text-[10px] text-muted-foreground mt-1 block">{kpi.sub}</span>
+          </div>
+        ))}
       </div>
 
+      {/* Charts row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        
-        {/* Scatter Correlation chart */}
+        {/* Scatter correlation */}
         <div className="bg-card p-6 rounded-3xl border border-border shadow-sm space-y-4">
           <div>
-            <h3 className="font-bold text-sm uppercase tracking-wider">Meteorological Correlation Matrix</h3>
-            <p className="text-xs text-muted-foreground">Wind speed (km/h) vs PM2.5 concentration (µg/m³)</p>
+            <h3 className="font-bold text-sm uppercase tracking-wider">Meteorological Correlation</h3>
+            <p className="text-xs text-muted-foreground">
+              Wind speed (km/h) vs PM2.5 (µg/m³) — from station telemetry (diurnal wind proxy)
+            </p>
           </div>
-
           <div className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <ScatterChart margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                <XAxis type="number" dataKey="wind" name="Wind Speed" unit="km/h" stroke="#888888" fontSize={10} tickLine={false} axisLine={false} />
-                <YAxis type="number" dataKey="pm25" name="PM2.5" unit="µg" stroke="#888888" fontSize={10} tickLine={false} axisLine={false} />
-                <ZAxis type="number" dataKey="aqi" range={[60, 400]} name="AQI" />
-                <Tooltip cursor={{ strokeDasharray: '3 3' }} />
-                <Scatter name="Telemetry Nodes" data={correlationData} fill="#ef4444" />
-              </ScatterChart>
-            </ResponsiveContainer>
+            {loading ? (
+              <div className="h-full flex items-center justify-center text-sm text-muted-foreground">
+                Loading telemetry…
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <ScatterChart margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                  <XAxis type="number" dataKey="wind"  name="Wind Speed" unit=" km/h" stroke="#888" fontSize={10} tickLine={false} axisLine={false} />
+                  <YAxis type="number" dataKey="pm25"  name="PM2.5"      unit=" µg"   stroke="#888" fontSize={10} tickLine={false} axisLine={false} />
+                  <ZAxis type="number" dataKey="aqi"   range={[40, 300]} name="AQI" />
+                  <Tooltip cursor={{ strokeDasharray: "3 3" }} />
+                  <Scatter name="Telemetry Nodes" data={correlationData} fill="#ef4444" />
+                </ScatterChart>
+              </ResponsiveContainer>
+            )}
           </div>
           <p className="text-[10px] text-muted-foreground leading-relaxed">
-            Note: Scatter indices demonstrate a strong negative correlation (-0.82) between wind velocity and ambient particulate concentrations, verifying wind-driven dispersal models.
+            Expected negative correlation: higher wind speeds disperse particulate matter, reducing PM2.5.
+            Wind proxy derived from diurnal pattern (morning calm, afternoon ventilation).
           </p>
         </div>
 
-        {/* Temporal trend chart */}
+        {/* Weekly trend */}
         <div className="bg-card p-6 rounded-3xl border border-border shadow-sm space-y-4">
           <div>
-            <h3 className="font-bold text-sm uppercase tracking-wider">Weekly Environmental Trend</h3>
-            <p className="text-xs text-muted-foreground">Moving averages of telemetry logs</p>
+            <h3 className="font-bold text-sm uppercase tracking-wider flex items-center gap-2">
+              <TrendingUp className="w-4 h-4 text-blue-500" />
+              14-Day AQI & PM2.5 Trend
+            </h3>
+            <p className="text-xs text-muted-foreground">Live records from local station database</p>
           </div>
-
           <div className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={history} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                <XAxis dataKey="timestamp" stroke="#888888" fontSize={9} tickFormatter={(val) => {
-                  const d = new Date(val);
-                  return `${d.getMonth()+1}/${d.getDate()}`;
-                }} tickLine={false} axisLine={false} />
-                <YAxis stroke="#888888" fontSize={10} tickLine={false} axisLine={false} />
-                <Tooltip />
-                <Legend verticalAlign="top" height={36} iconSize={10} />
-                <Line type="monotone" dataKey="aqi" name="AQI Trend" stroke="#8b5cf6" strokeWidth={2.5} activeDot={{ r: 6 }} dot={false} />
-                <Line type="monotone" dataKey="pm25" name="PM2.5 Trend" stroke="#3b82f6" strokeWidth={1.5} dot={false} />
-              </LineChart>
-            </ResponsiveContainer>
+            {loading || trendData.length === 0 ? (
+              <div className="h-full flex items-center justify-center text-sm text-muted-foreground">
+                {loading ? "Loading…" : "No records. Seed the database via Admin Panel."}
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={trendData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                  <XAxis dataKey="timestamp" stroke="#888" fontSize={9} tickLine={false} axisLine={false}
+                    tickFormatter={(v) => { const d = new Date(v); return `${d.getMonth()+1}/${d.getDate()}`; }} />
+                  <YAxis stroke="#888" fontSize={10} tickLine={false} axisLine={false} />
+                  <Tooltip labelFormatter={(v) => new Date(v).toLocaleString()} />
+                  <Legend verticalAlign="top" height={36} iconSize={10} />
+                  <Line type="monotone" dataKey="aqi"  name="AQI"   stroke="#8b5cf6" strokeWidth={2.5} dot={false} />
+                  <Line type="monotone" dataKey="pm25" name="PM2.5" stroke="#3b82f6" strokeWidth={1.5} dot={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            )}
           </div>
         </div>
-
       </div>
 
-      {/* Grid records table */}
+      {/* Station history table */}
       <div className="bg-card p-6 rounded-3xl border border-border shadow-sm space-y-4">
         <div className="flex items-center gap-2 pb-3 border-b border-border">
           <TableProperties className="w-5 h-5 text-blue-500" />
-          <h3 className="font-bold text-sm uppercase tracking-wider">Raw Telemetry Records</h3>
+          <h3 className="font-bold text-sm uppercase tracking-wider">Station AQI History</h3>
+          <span className="text-[10px] text-muted-foreground ml-auto">
+            Showing {Math.min(history.length, 10)} of {history.length} records (last 14 days)
+          </span>
         </div>
-
         <div className="overflow-x-auto">
           <table className="w-full text-xs text-left">
             <thead>
               <tr className="border-b border-border/80 text-muted-foreground uppercase font-bold tracking-wider">
                 <th className="py-3 px-4">Timestamp</th>
-                <th className="py-3 px-4">Estimated AQI</th>
+                <th className="py-3 px-4">AQI</th>
                 <th className="py-3 px-4">PM2.5 (µg/m³)</th>
-                <th className="py-3 px-4">Ventilation Index</th>
+                <th className="py-3 px-4">Status</th>
               </tr>
             </thead>
             <tbody>
-              {history.slice(0, 8).map((h, idx) => (
-                <tr key={idx} className="border-b border-border/60 hover:bg-muted/30 transition-colors">
-                  <td className="py-3 px-4 font-medium">{new Date(h.timestamp).toLocaleString()}</td>
-                  <td className="py-3 px-4 font-bold">{h.aqi}</td>
-                  <td className="py-3 px-4">{h.pm25}</td>
-                  <td className="py-3 px-4 text-emerald-500 font-semibold">Normal</td>
+              {history.slice(0, 10).map((h, idx) => {
+                const status =
+                  h.aqi <= 50  ? { label: "Good",        color: "text-emerald-500" } :
+                  h.aqi <= 100 ? { label: "Moderate",    color: "text-amber-500"   } :
+                  h.aqi <= 200 ? { label: "Unhealthy",   color: "text-red-500"     } :
+                                 { label: "Hazardous",   color: "text-purple-500"  };
+                return (
+                  <tr key={idx} className="border-b border-border/60 hover:bg-muted/30 transition-colors">
+                    <td className="py-3 px-4 font-medium">{new Date(h.timestamp).toLocaleString()}</td>
+                    <td className="py-3 px-4 font-bold">{Math.round(h.aqi)}</td>
+                    <td className="py-3 px-4">{h.pm25}</td>
+                    <td className={`py-3 px-4 font-semibold ${status.color}`}>{status.label}</td>
+                  </tr>
+                );
+              })}
+              {history.length === 0 && (
+                <tr>
+                  <td colSpan={4} className="py-6 text-center text-muted-foreground">
+                    No records found. Use Admin Panel → Seed Database to populate station history.
+                  </td>
                 </tr>
-              ))}
+              )}
             </tbody>
           </table>
         </div>

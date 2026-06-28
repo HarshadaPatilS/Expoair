@@ -1,64 +1,108 @@
 import React, { useState, useEffect } from "react";
 import { apiService } from "../services/api";
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
-import { Sliders, CheckCircle2 } from "lucide-react";
+import { Sliders, CheckCircle2, Info } from "lucide-react";
+
+// ── City presets for the forecast location picker ─────────────────────────────
+const LOCATIONS = [
+  { label: "Delhi — Anand Vihar",           lat: 28.6469, lng: 77.3164 },
+  { label: "Delhi — ITO",                   lat: 28.6280, lng: 77.2411 },
+  { label: "Pune — Central Hub",            lat: 18.5204, lng: 73.8567 },
+  { label: "PCMC — Pimpri-Chinchwad",       lat: 18.6298, lng: 73.7997 },
+  { label: "Lonavala — Sinhgad Institute",  lat: 18.7530, lng: 73.4063 },
+];
 
 export const Forecast: React.FC = () => {
-  const [forecastData, setForecastData] = useState<any>(null);
-  
-  // SHAP Interactive overrides
-  const [pm25Slider, setPm25Slider] = useState<number>(45);
-  const [windSlider, setWindSlider] = useState<number>(6.5);
-  const [tempSlider, setTempSlider] = useState<number>(27);
+  const [forecastData, setForecastData]       = useState<any>(null);
+  const [selectedLocation, setSelectedLocation] = useState(LOCATIONS[0]);
+  const [loading, setLoading]                 = useState(false);
+  const [selectedModel, setSelectedModel]     = useState("LSTM Sequence Model");
+
+  // SHAP interactive sliders
+  const [pm25Slider,  setPm25Slider]  = useState(45);
+  const [windSlider,  setWindSlider]  = useState(8);
+  const [tempSlider,  setTempSlider]  = useState(27);
   const humiditySlider = 55;
-  
-  const [selectedModel, setSelectedModel] = useState<string>("LSTM Sequence Model");
 
   const loadForecast = async (customFeatures?: any) => {
-    // Lonavala / Sinhgad Institute coordinates (paper deployment site)
-    const data = await apiService.getForecast(18.7530, 73.4063, customFeatures);
-    setForecastData(data);
+    setLoading(true);
+    try {
+      const data = await apiService.getForecast(
+        selectedLocation.lat,
+        selectedLocation.lng,
+        customFeatures,
+      );
+      setForecastData(data);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  useEffect(() => {
-    loadForecast();
-  }, []);
+  useEffect(() => { loadForecast(); }, [selectedLocation]);
 
   const handleSliderChange = () => {
-    // Refresh forecast using custom parameters to update SHAP in real-time
-    loadForecast({
-      pm25: pm25Slider,
-      wind_speed: windSlider,
-      temperature: tempSlider,
-      humidity: humiditySlider
-    });
+    loadForecast({ pm25: pm25Slider, wind_speed: windSlider, temperature: tempSlider, humidity: humiditySlider });
   };
 
-  const getAqiSeverityClass = (aqi: number) => {
-    if (aqi < 50) return "text-emerald-500 bg-emerald-500/10 border-emerald-500/25";
+  const getAqiClass = (aqi: number) => {
+    if (aqi < 50)  return "text-emerald-500 bg-emerald-500/10 border-emerald-500/25";
     if (aqi < 100) return "text-amber-500 bg-amber-500/10 border-amber-500/25";
-    if (aqi < 150) return "text-red-500 bg-red-500/10 border-red-500/25";
+    if (aqi < 200) return "text-red-500 bg-red-500/10 border-red-500/25";
     return "text-purple-500 bg-purple-500/10 border-purple-500/25";
   };
 
-  const activeModelDetails = forecastData?.models.find((m: any) => m.model_name === selectedModel);
+  const activeModel = forecastData?.models?.find((m: any) => m.model_name === selectedModel);
 
   return (
     <div className="space-y-6 text-left">
+      {/* Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-card p-4 rounded-2xl border border-border shadow-sm">
         <div>
           <h2 className="text-xl font-bold tracking-tight">Explainable AI (XAI) Forecasting</h2>
-          <p className="text-xs text-muted-foreground">Multi-model air quality forecasts with SHAP additive explanations</p>
+          <p className="text-xs text-muted-foreground">
+            Multi-model AQI forecasts with SHAP additive explanations — trained on CPCB station history
+          </p>
+        </div>
+
+        {/* Location picker */}
+        <div className="flex items-center gap-2 bg-muted px-3 py-1.5 rounded-lg border border-border shrink-0">
+          <select
+            value={`${selectedLocation.lat},${selectedLocation.lng}`}
+            onChange={(e) => {
+              const [lat, lng] = e.target.value.split(",").map(Number);
+              const loc = LOCATIONS.find((l) => l.lat === lat && l.lng === lng) || LOCATIONS[0];
+              setSelectedLocation(loc);
+            }}
+            className="bg-transparent text-sm focus:outline-none font-medium cursor-pointer"
+          >
+            {LOCATIONS.map((l) => (
+              <option key={l.label} value={`${l.lat},${l.lng}`} className="bg-background text-foreground">
+                {l.label}
+              </option>
+            ))}
+          </select>
         </div>
       </div>
 
+      {/* Data source badge */}
+      {forecastData?.data_source && (
+        <div className="flex items-center gap-2 px-4 py-2 bg-blue-500/10 border border-blue-500/20 rounded-xl text-xs text-blue-600 dark:text-blue-400 font-medium">
+          <Info className="w-4 h-4 shrink-0" />
+          <span>Data source: {forecastData.data_source}</span>
+        </div>
+      )}
+
+      {loading && (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <span className="w-4 h-4 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />
+          Running forecast models…
+        </div>
+      )}
+
       {forecastData && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          
-          {/* Main Forecast Panel */}
+          {/* Model comparison cards + timeline */}
           <div className="lg:col-span-2 space-y-6">
-            
-            {/* Model Comparison Selector cards */}
             <div className="grid md:grid-cols-3 gap-4">
               {forecastData.models.map((m: any) => (
                 <button
@@ -71,24 +115,23 @@ export const Forecast: React.FC = () => {
                   }`}
                 >
                   <div className="space-y-3">
-                    <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">Predictive Model</span>
+                    <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">
+                      Predictive Model
+                    </span>
                     <h4 className="font-bold text-sm truncate">{m.model_name}</h4>
-                    
                     <div className="flex justify-between items-baseline">
-                      <span className="text-3xl font-extrabold tracking-tight">{Math.round(m.prediction_tomorrow)}</span>
-                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold border ${getAqiSeverityClass(m.prediction_tomorrow)}`}>
+                      <span className="text-3xl font-extrabold tracking-tight">
+                        {Math.round(m.prediction_tomorrow)}
+                      </span>
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold border ${getAqiClass(m.prediction_tomorrow)}`}>
                         AQI
                       </span>
                     </div>
-
                     <div className="grid grid-cols-2 gap-2 text-[10px] text-muted-foreground border-t border-border pt-2.5">
-                      <div>
-                        <span>R² Score: </span>
-                        <span className="font-bold text-foreground">{m.accuracy_r2}</span>
-                      </div>
-                      <div>
-                        <span>MAE: </span>
-                        <span className="font-bold text-foreground">{m.mae} ppm</span>
+                      <div>R²: <span className="font-bold text-foreground">{m.accuracy_r2}</span></div>
+                      <div>MAE: <span className="font-bold text-foreground">{m.mae}</span></div>
+                      <div className="col-span-2">
+                        Conf: <span className="font-bold text-foreground">{Math.round(m.confidence * 100)}%</span>
                       </div>
                     </div>
                   </div>
@@ -96,32 +139,30 @@ export const Forecast: React.FC = () => {
               ))}
             </div>
 
-            {/* Model Forecast 24h Area Chart */}
-            {activeModelDetails && (
+            {activeModel && (
               <div className="bg-card p-6 rounded-3xl border border-border shadow-sm space-y-4">
                 <div className="flex justify-between items-center">
                   <div>
                     <h4 className="text-base font-bold">24-Hour Predictive Timeline</h4>
-                    <p className="text-xs text-muted-foreground">Horizon trend for {selectedModel}</p>
+                    <p className="text-xs text-muted-foreground">Horizon forecast — {selectedModel}</p>
                   </div>
                   <div className="text-xs font-semibold text-muted-foreground bg-muted px-2.5 py-1 rounded-lg border border-border">
-                    Confidence: {Math.round(activeModelDetails.confidence * 100)}%
+                    Confidence: {Math.round(activeModel.confidence * 100)}%
                   </div>
                 </div>
-
                 <div className="h-56">
                   <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={activeModelDetails.forecast_24h} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                    <AreaChart data={activeModel.forecast_24h} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                       <defs>
-                        <linearGradient id="forecastGrad" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#2563eb" stopOpacity={0.2}/>
-                          <stop offset="95%" stopColor="#2563eb" stopOpacity={0}/>
+                        <linearGradient id="fg" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%"  stopColor="#2563eb" stopOpacity={0.2} />
+                          <stop offset="95%" stopColor="#2563eb" stopOpacity={0} />
                         </linearGradient>
                       </defs>
-                      <XAxis dataKey="hour" stroke="#888888" fontSize={10} tickFormatter={(val) => `+${val}h`} tickLine={false} axisLine={false} />
-                      <YAxis stroke="#888888" fontSize={10} tickLine={false} axisLine={false} />
-                      <Tooltip contentStyle={{ backgroundColor: "rgba(30, 30, 40, 0.9)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "8px" }} />
-                      <Area type="monotone" dataKey="aqi" stroke="#2563eb" fillOpacity={1} fill="url(#forecastGrad)" strokeWidth={2} />
+                      <XAxis dataKey="hour" stroke="#888" fontSize={10} tickFormatter={(v) => `+${v}h`} tickLine={false} axisLine={false} />
+                      <YAxis stroke="#888" fontSize={10} tickLine={false} axisLine={false} />
+                      <Tooltip contentStyle={{ backgroundColor: "rgba(30,30,40,.9)", border: "1px solid rgba(255,255,255,.1)", borderRadius: 8 }} />
+                      <Area type="monotone" dataKey="aqi" stroke="#2563eb" fillOpacity={1} fill="url(#fg)" strokeWidth={2} />
                     </AreaChart>
                   </ResponsiveContainer>
                 </div>
@@ -129,7 +170,7 @@ export const Forecast: React.FC = () => {
             )}
           </div>
 
-          {/* Explainable AI (SHAP Explainer) Panel */}
+          {/* SHAP panel */}
           <div className="space-y-6">
             <div className="bg-card p-6 rounded-3xl border border-border shadow-sm space-y-5">
               <div className="flex items-center gap-2">
@@ -139,50 +180,27 @@ export const Forecast: React.FC = () => {
 
               {/* Sliders */}
               <div className="space-y-4 border-b border-border pb-4">
-                <div className="space-y-1">
-                  <div className="flex justify-between text-xs font-semibold">
-                    <span>Base PM2.5 (µg/m³)</span>
-                    <span className="text-blue-500">{pm25Slider}</span>
+                {[
+                  { label: "Base PM2.5 (µg/m³)", val: pm25Slider, set: setPm25Slider, min: 5, max: 150 },
+                  { label: "Wind Speed (km/h)",   val: windSlider, set: setWindSlider, min: 1, max: 30 },
+                  { label: "Temperature (°C)",    val: tempSlider, set: setTempSlider, min: 5, max: 45 },
+                ].map(({ label, val, set, min, max }) => (
+                  <div key={label} className="space-y-1">
+                    <div className="flex justify-between text-xs font-semibold">
+                      <span>{label}</span>
+                      <span className="text-blue-500">{val}</span>
+                    </div>
+                    <input
+                      type="range" min={min} max={max} value={val}
+                      onChange={(e) => set(Number(e.target.value))}
+                      onMouseUp={handleSliderChange} onTouchEnd={handleSliderChange}
+                      className="w-full h-1 bg-muted rounded-lg appearance-none cursor-pointer accent-blue-600"
+                    />
                   </div>
-                  <input 
-                    type="range" min="5" max="150" value={pm25Slider}
-                    onChange={(e) => setPm25Slider(Number(e.target.value))}
-                    onMouseUp={handleSliderChange}
-                    onTouchEnd={handleSliderChange}
-                    className="w-full h-1 bg-muted rounded-lg appearance-none cursor-pointer accent-blue-600"
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <div className="flex justify-between text-xs font-semibold">
-                    <span>Wind Speed (km/h)</span>
-                    <span className="text-blue-500">{windSlider}</span>
-                  </div>
-                  <input 
-                    type="range" min="1" max="30" value={windSlider}
-                    onChange={(e) => setWindSlider(Number(e.target.value))}
-                    onMouseUp={handleSliderChange}
-                    onTouchEnd={handleSliderChange}
-                    className="w-full h-1 bg-muted rounded-lg appearance-none cursor-pointer accent-blue-600"
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <div className="flex justify-between text-xs font-semibold">
-                    <span>Temperature (°C)</span>
-                    <span className="text-blue-500">{tempSlider}</span>
-                  </div>
-                  <input 
-                    type="range" min="5" max="45" value={tempSlider}
-                    onChange={(e) => setTempSlider(Number(e.target.value))}
-                    onMouseUp={handleSliderChange}
-                    onTouchEnd={handleSliderChange}
-                    className="w-full h-1 bg-muted rounded-lg appearance-none cursor-pointer accent-blue-600"
-                  />
-                </div>
+                ))}
               </div>
 
-              {/* SHAP Contributions List */}
+              {/* SHAP contributions */}
               <div className="space-y-3.5">
                 <div className="flex justify-between items-center">
                   <h4 className="text-xs font-bold text-muted-foreground">SHAP Feature Contributions</h4>
@@ -194,14 +212,22 @@ export const Forecast: React.FC = () => {
 
                 <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
                   {forecastData.shap_explanation.shap_contributions.map((s: any, idx: number) => {
-                    const isPositive = s.shap_value > 0;
+                    const positive = s.shap_value > 0;
+                    const barWidth = Math.min(100, Math.abs(s.shap_value) / Math.max(1, forecastData.predicted_aqi) * 200);
                     return (
                       <div key={idx} className="p-3 bg-muted/40 rounded-xl border border-border/80 text-xs space-y-1.5">
                         <div className="flex justify-between items-center font-bold">
                           <span className="capitalize">{s.feature.replace("_", " ")}</span>
-                          <span className={isPositive ? "text-red-500" : "text-emerald-500"}>
-                            {isPositive ? "+" : ""}{s.shap_value.toFixed(1)} pts
+                          <span className={positive ? "text-red-500" : "text-emerald-500"}>
+                            {positive ? "+" : ""}{s.shap_value.toFixed(1)} pts
                           </span>
+                        </div>
+                        {/* Mini bar */}
+                        <div className="h-1 bg-muted rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full ${positive ? "bg-red-400" : "bg-emerald-400"}`}
+                            style={{ width: `${barWidth}%` }}
+                          />
                         </div>
                         <p className="text-[11px] text-muted-foreground leading-normal">{s.description}</p>
                       </div>
@@ -209,19 +235,19 @@ export const Forecast: React.FC = () => {
                   })}
                 </div>
 
-                <div className="pt-3 border-t border-border flex justify-between items-baseline text-xs">
-                  <span className="text-muted-foreground">Expected Base AQI</span>
-                  <span className="font-bold">{forecastData.shap_explanation.base_value}</span>
-                </div>
-                
-                <div className="flex justify-between items-baseline text-sm font-extrabold">
-                  <span>Predicted Final AQI</span>
-                  <span className="text-blue-600 dark:text-emerald-400">{Math.round(forecastData.predicted_aqi)}</span>
+                <div className="pt-3 border-t border-border space-y-1.5 text-xs">
+                  <div className="flex justify-between items-baseline">
+                    <span className="text-muted-foreground">Expected Base AQI (24h mean)</span>
+                    <span className="font-bold">{forecastData.shap_explanation.base_value}</span>
+                  </div>
+                  <div className="flex justify-between items-baseline text-sm font-extrabold">
+                    <span>Predicted Final AQI</span>
+                    <span className="text-blue-600 dark:text-emerald-400">{Math.round(forecastData.predicted_aqi)}</span>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
-
         </div>
       )}
     </div>

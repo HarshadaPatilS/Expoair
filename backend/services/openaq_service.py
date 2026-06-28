@@ -7,229 +7,255 @@ from typing import List, Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
 
-def calculate_haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-    """Calculate distance using the Haversine formula."""
-    R = 6371.0  # Earth radius in kilometers
-    
-    if None in (lat1, lon1, lat2, lon2):
-        return float('inf')
+# ── Indian CPCB AQI breakpoints for PM2.5 ──────────────────────────────────
+# Source: CPCB National Air Quality Index Technical Document
+PM25_BREAKPOINTS = [
+    (0,    30,   0,   50),
+    (30,   60,   51,  100),
+    (60,   90,   101, 200),
+    (90,   120,  201, 300),
+    (120,  250,  301, 400),
+    (250,  500,  401, 500),
+]
 
+def pm25_to_aqi(pm25: float) -> float:
+    """Convert PM2.5 (µg/m³) to Indian CPCB AQI using linear interpolation."""
+    if pm25 < 0:
+        return 0.0
+    for c_lo, c_hi, i_lo, i_hi in PM25_BREAKPOINTS:
+        if c_lo <= pm25 <= c_hi:
+            aqi = ((i_hi - i_lo) / (c_hi - c_lo)) * (pm25 - c_lo) + i_lo
+            return round(aqi, 1)
+    return 500.0  # hazardous cap
+
+
+def calculate_haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Calculate distance (km) between two coordinates using the Haversine formula."""
+    R = 6371.0
+    if None in (lat1, lon1, lat2, lon2):
+        return float("inf")
     try:
-        lat1_rad = math.radians(float(lat1))
-        lon1_rad = math.radians(float(lon1))
-        lat2_rad = math.radians(float(lat2))
-        lon2_rad = math.radians(float(lon2))
-        
-        dlat = lat2_rad - lat1_rad
-        dlon = lon2_rad - lon1_rad
-        
-        a = math.sin(dlat / 2)**2 + math.cos(lat1_rad) * math.cos(lat2_rad) * math.sin(dlon / 2)**2
-        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-        
-        return R * c
+        lat1_r, lon1_r = math.radians(float(lat1)), math.radians(float(lon1))
+        lat2_r, lon2_r = math.radians(float(lat2)), math.radians(float(lon2))
+        dlat = lat2_r - lat1_r
+        dlon = lon2_r - lon1_r
+        a = math.sin(dlat / 2) ** 2 + math.cos(lat1_r) * math.cos(lat2_r) * math.sin(dlon / 2) ** 2
+        return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
     except (ValueError, TypeError):
-        return float('inf')
+        return float("inf")
 
 
 class OpenAQService:
+    """Wrapper around OpenAQ v3 REST API with in-memory TTL cache."""
+
+    BASE_URL = "https://api.openaq.org/v3"
+
+    # City centres used for multi-city station discovery
+    CITIES = [
+        {"name": "Delhi",    "lat": 28.6139, "lng": 77.2090, "radius": 40000},
+        {"name": "Pune",     "lat": 18.5204, "lng": 73.8567, "radius": 30000},
+        {"name": "PCMC",     "lat": 18.6298, "lng": 73.7997, "radius": 20000},
+        {"name": "Lonavala", "lat": 18.7490, "lng": 73.4070, "radius": 15000},
+    ]
+
     def __init__(self):
-        self.api_key = os.getenv("OPENAQ_API_KEY")
-        # OpenAQ v3 API base URL
-        self.base_url = "https://api.openaq.org/v3"
-        
-        # Simple in-memory dictionary cache with TTL of 5 minutes
+        self.api_key: Optional[str] = os.getenv("OPENAQ_API_KEY")
         self._cache: Dict[str, Dict[str, Any]] = {}
         self.cache_ttl = 300  # 5 minutes
 
-    def _get_from_cache(self, key: str) -> Optional[Any]:
-        if key in self._cache:
-            item = self._cache[key]
-            if time.time() - item["timestamp"] < self.cache_ttl:
-                return item["data"]
+    # ── Cache helpers ───────────────────────────────────────────────────────
+
+    def _get(self, key: str) -> Optional[Any]:
+        item = self._cache.get(key)
+        if item and time.time() - item["ts"] < self.cache_ttl:
+            return item["data"]
         return None
 
-    def _set_to_cache(self, key: str, data: Any):
-        self._cache[key] = {
-            "data": data,
-            "timestamp": time.time()
-        }
+    def _set(self, key: str, data: Any):
+        self._cache[key] = {"data": data, "ts": time.time()}
 
-    async def _fetch_data(self, endpoint: str, params: Dict[str, Any], cache_key: str) -> Any:
-        cached_data = self._get_from_cache(cache_key)
-        if cached_data is not None:
-            return cached_data
+    # ── HTTP helper ─────────────────────────────────────────────────────────
 
-        if not self.api_key:
-            logger.warning("OPENAQ_API_KEY environment variable is not set. Using mocked/cached data if available.")
-            if cache_key in self._cache:
-                return self._cache[cache_key]["data"]
+    async def _request(self, endpoint: str, params: Dict[str, Any], cache_key: str) -> Any:
+        cached = self._get(cache_key)
+        if cached is not None:
+            return cached
 
         headers = {}
         if self.api_key:
             headers["X-API-Key"] = self.api_key
 
         try:
-            async with httpx.AsyncClient() as client:
-                url = f"{self.base_url}/{endpoint}"
-                response = await client.get(url, params=params, headers=headers)
-                response.raise_for_status()
-                data = response.json()
-                results = data.get("results", [])
-                
-                self._set_to_cache(cache_key, results)
+            async with httpx.AsyncClient(timeout=12.0) as client:
+                url = f"{self.BASE_URL}/{endpoint}"
+                resp = await client.get(url, params=params, headers=headers)
+                resp.raise_for_status()
+                results = resp.json().get("results", [])
+                self._set(cache_key, results)
                 return results
-        except httpx.HTTPError as e:
-            logger.error(f"HTTP Error while fetching OpenAQ data: {e}")
-            if cache_key in self._cache:
-                logger.info(f"Returning stale cache data for {cache_key} due to API failure.")
-                return self._cache[cache_key]["data"]
-            return []
+        except httpx.HTTPStatusError as e:
+            logger.warning(f"OpenAQ HTTP {e.response.status_code} for {endpoint}: {e}")
         except Exception as e:
-            logger.error(f"Unexpected error fetching OpenAQ data: {e}")
-            if cache_key in self._cache:
-                return self._cache[cache_key]["data"]
-            return []
+            logger.warning(f"OpenAQ request error for {endpoint}: {e}")
 
-    async def get_all_pune_stations(self) -> List[Dict[str, Any]]:
-        """Returns active OpenAQ stations in Pune/PCMC area with lat/lng."""
-        # OpenAQ v3 uses coordinates and radius. For Pune, let's use approx coords.
-        # Pune lat/lng: 18.5204, 73.8567. Radius 50km
-        params = {
-            "coordinates": "18.5204,73.8567",
-            "radius": 50000,
-            "limit": 100
-        }
-        records = await self._fetch_data("locations", params, "all_openaq_stations_pune")
-        
-        pune_stations = {}
-        for record in records:
-            station_name = record.get("name")
-            if not station_name:
-                continue
-                
-            coords = record.get("coordinates", {})
-            
-            pune_stations[station_name] = {
-                "station": station_name,
-                "city": "Pune",
-                "state": "Maharashtra",
-                "latitude": coords.get("latitude"),
-                "longitude": coords.get("longitude"),
-                "pollutants": {}
-            }
-            
-            # OpenAQ v3 sensors are in a nested list or accessible via /locations/{id}/latest
-            # Let's map any parameters we can find if they are inline.
-            # In v3, parameters are under 'parameters' list. We will need to query /latest for actual values
-            # if they are not inline. For now, this just lists stations.
-        
-        return list(pune_stations.values())
+        # Return stale cache on failure
+        stale = self._cache.get(cache_key)
+        return stale["data"] if stale else []
+
+    # ── Public API ──────────────────────────────────────────────────────────
+
+    async def get_all_stations(self) -> List[Dict[str, Any]]:
+        """Return all monitoring stations across all tracked cities."""
+        all_stations: Dict[str, Dict] = {}
+
+        for city in self.CITIES:
+            cache_key = f"stations_{city['name']}"
+            records = await self._request(
+                "locations",
+                {
+                    "coordinates": f"{city['lat']},{city['lng']}",
+                    "radius": city["radius"],
+                    "limit": 50,
+                },
+                cache_key,
+            )
+            for rec in records:
+                name = rec.get("name") or rec.get("id")
+                coords = rec.get("coordinates") or {}
+                lat = coords.get("latitude")
+                lng = coords.get("longitude")
+                if not (name and lat and lng):
+                    continue
+                all_stations[str(rec.get("id"))] = {
+                    "id": rec.get("id"),
+                    "station": name,
+                    "city": city["name"],
+                    "latitude": lat,
+                    "longitude": lng,
+                }
+
+        return list(all_stations.values())
 
     async def get_nearest_station(self, lat: float, lng: float) -> Dict[str, Any]:
-        """
-        Returns the nearest station's PM2.5, PM10, NO2, SO2, AQI values.
-        """
-        params = {
-            "coordinates": f"{lat},{lng}",
-            "radius": 25000,
-            "limit": 5
-        }
-        
-        # Querying /locations to find nearest stations
-        locations = await self._fetch_data("locations", params, f"nearest_{lat}_{lng}")
-        
+        """Return nearest station's latest pollutant readings + computed AQI."""
+        cache_key = f"nearest_{round(lat,3)}_{round(lng,3)}"
+        cached = self._get(cache_key)
+        if cached is not None:
+            return cached
+
+        locations = await self._request(
+            "locations",
+            {"coordinates": f"{lat},{lng}", "radius": 50000, "limit": 5},
+            f"loc_search_{round(lat,2)}_{round(lng,2)}",
+        )
+
         if not locations:
-            return {}
+            result = {}
+            self._set(cache_key, result)
+            return result
 
-        # Get the first one (nearest)
-        nearest_loc = locations[0]
-        loc_id = nearest_loc.get("id")
-        
-        # Fetch latest measurements for this location
-        latest = await self._fetch_data(f"locations/{loc_id}/latest", {}, f"latest_{loc_id}")
-        
-        pollutants = {}
-        if latest and len(latest) > 0:
-            if isinstance(latest, list):
-                if isinstance(latest[0], dict) and "results" in latest[0]:
-                    measurements = latest[0].get("results", [])
-                else:
-                    measurements = latest
-            elif isinstance(latest, dict):
-                measurements = latest.get("results", [])
-            else:
-                measurements = []
-            
-            for m in measurements:
-                param = str(m.get("parameter", "")).upper()
-                val = m.get("value")
-                if param and val is not None:
-                    # OpenAQ param names might be "PM25", "PM10". Convert to expected.
-                    if param == "PM25": param = "PM2.5"
+        nearest = locations[0]
+        loc_id = nearest.get("id")
+
+        # Fetch latest sensor readings for this location
+        latest = await self._request(
+            f"locations/{loc_id}/latest",
+            {},
+            f"latest_{loc_id}",
+        )
+
+        # OpenAQ v3 returns a list of {parameter, value, ...} dicts
+        pollutants: Dict[str, float] = {}
+        measurements = latest if isinstance(latest, list) else latest.get("results", [])
+        for m in measurements:
+            param = str(m.get("parameter", "")).lower().replace(".", "")
+            val = m.get("value")
+            if param and val is not None:
+                try:
                     pollutants[param] = float(val)
+                except (TypeError, ValueError):
+                    pass
 
-        # Estimate AQI if missing (simplified logic)
-        if "AQI" not in pollutants and "PM2.5" in pollutants:
-            pollutants["AQI"] = float(pollutants["PM2.5"]) * 2.5
-            
-        coords = nearest_loc.get("coordinates", {})
+        # Normalise common parameter name variants
+        pm25 = pollutants.get("pm25") or pollutants.get("pm2_5")
+        pm10 = pollutants.get("pm10")
+        no2  = pollutants.get("no2")
+        so2  = pollutants.get("so2")
+
+        aqi = pollutants.get("aqi")
+        if aqi is None and pm25 is not None:
+            aqi = pm25_to_aqi(pm25)
+
+        coords = nearest.get("coordinates") or {}
         s_lat = coords.get("latitude")
         s_lng = coords.get("longitude")
-        
-        dist = calculate_haversine_distance(lat, lng, float(s_lat), float(s_lng)) if s_lat and s_lng else float('inf')
+        dist = calculate_haversine_distance(lat, lng, float(s_lat or lat), float(s_lng or lng))
 
-        return {
-            "station": nearest_loc.get("name"),
+        result = {
+            "station": nearest.get("name"),
+            "location_id": loc_id,
             "distance_km": round(dist, 2),
-            "PM2.5": pollutants.get("PM2.5"),
-            "PM10": pollutants.get("PM10"),
-            "NO2": pollutants.get("NO2"),
-            "SO2": pollutants.get("SO2"),
-            "AQI": pollutants.get("AQI")
+            "PM2.5": pm25,
+            "PM10":  pm10,
+            "NO2":   no2,
+            "SO2":   so2,
+            "AQI":   round(aqi, 1) if aqi else None,
         }
+        self._set(cache_key, result)
+        return result
 
-    async def get_station_history(self, station_id: str, hours: int = 24) -> List[Dict[str, Any]]:
-        """
-        Returns hourly AQI readings for the past N hours from that station.
-        """
-        cache_key = f"history_openaq_{station_id}_{hours}"
-        cached = self._get_from_cache(cache_key)
+    async def get_stations_with_aqi(self) -> List[Dict[str, Any]]:
+        """Return all city stations with their latest AQI from OpenAQ."""
+        stations = await self.get_all_stations()
+        results = []
+        for s in stations:
+            try:
+                latest = await self._request(
+                    f"locations/{s['id']}/latest",
+                    {},
+                    f"latest_{s['id']}",
+                )
+                pm25 = None
+                measurements = latest if isinstance(latest, list) else latest.get("results", [])
+                for m in measurements:
+                    param = str(m.get("parameter", "")).lower().replace(".", "")
+                    if param in ("pm25", "pm2_5") and m.get("value") is not None:
+                        pm25 = float(m["value"])
+                        break
+                aqi = pm25_to_aqi(pm25) if pm25 else None
+                results.append({**s, "pm25": pm25, "aqi": aqi})
+            except Exception as e:
+                logger.debug(f"Could not fetch latest for {s['station']}: {e}")
+                results.append({**s, "pm25": None, "aqi": None})
+        return results
+
+    async def get_station_history(self, location_id: str, hours: int = 24) -> List[Dict[str, Any]]:
+        """Return hourly PM2.5 readings for a specific OpenAQ location."""
+        cache_key = f"history_{location_id}_{hours}"
+        cached = self._get(cache_key)
         if cached is not None:
-             return cached
-             
-        # Mocking an endpoint call for exact station history
-        params = {
-            "limit": hours
-        }
-        
-        # In OpenAQ we could query /measurements for a specific location
-        records = await self._fetch_data("measurements", {"location_id": station_id, "limit": hours*5}, f"measurements_{station_id}")
-        if not records:
-             return []
-             
-        pollutants = {}
-        last_update = None
-        for record in records:
-            p_id = str(record.get("parameter", "")).upper()
-            if p_id == "PM25": p_id = "PM2.5"
-            p_val = record.get("value")
-            
-            # Simple grouping
-            if not last_update:
-                last_update = record.get("date", {}).get("utc")
-            if p_id and p_val is not None:
+            return cached
+
+        records = await self._request(
+            "measurements",
+            {"location_id": location_id, "limit": hours * 4, "parameter": "pm25"},
+            cache_key,
+        )
+
+        history = []
+        for rec in records:
+            ts = (rec.get("date") or {}).get("utc")
+            val = rec.get("value")
+            if ts and val is not None:
                 try:
-                    pollutants[p_id] = float(p_val)
-                except ValueError:
+                    pm25 = float(val)
+                    history.append({
+                        "timestamp": ts,
+                        "pm25": pm25,
+                        "aqi": pm25_to_aqi(pm25),
+                    })
+                except (TypeError, ValueError):
                     pass
-        
-        history = [
-            {
-                "timestamp": last_update or time.time(),
-                "station_id": station_id,
-                "pollutants": pollutants
-            }
-        ]
-        
-        self._set_to_cache(cache_key, history)
+
+        self._set(cache_key, history)
         return history
