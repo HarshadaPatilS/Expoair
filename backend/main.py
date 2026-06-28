@@ -144,3 +144,18 @@ def health_check():
         "version": "2.0.0",
         "database": "connected"
     }
+
+@app.get("/debug-weather")
+async def debug_weather():
+    import httpx
+    url = "https://api.open-meteo.com/v1/forecast?latitude=18.52&longitude=73.86&hourly=temperature_2m&forecast_days=1"
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            r = await client.get(url)
+            return {
+                "status_code": r.status_code,
+                "response_preview": str(r.text)[:300],
+                "reachable": r.status_code == 200
+            }
+    except Exception as e:
+        return {"error": str(e), "reachable": False}
