@@ -61,7 +61,33 @@ async def lifespan(app: FastAPI):
         logger.info("MQTT service started successfully on startup.")
     except Exception as e:
         logger.error(f"Failed to initialize or start MQTTService: {e}")
-        
+
+    # Pre-warm the Open-Meteo cache for all seeded stations.
+    # This fires in the background so it doesn't block startup, but ensures
+    # the first user request gets weather data (critical on Render cold starts).
+    import asyncio
+    async def _prewarm_weather():
+        try:
+            from services.weather_service import WeatherService
+            from database.connection import SessionLocal
+            from database.schema import Station
+            ws = WeatherService()
+            db = SessionLocal()
+            try:
+                station_coords = [(s.latitude, s.longitude) for s in db.query(Station).all()]
+            finally:
+                db.close()
+            for lat, lng in station_coords:
+                try:
+                    await ws.get_current_weather(lat, lng)
+                    logger.info(f"Weather cache pre-warmed for ({lat}, {lng})")
+                except Exception as we:
+                    logger.warning(f"Weather pre-warm failed for ({lat}, {lng}): {we}")
+        except Exception as e:
+            logger.warning(f"Weather pre-warm task failed: {e}")
+
+    asyncio.create_task(_prewarm_weather())
+
     yield
     
     # Stop MQTT Service
@@ -82,20 +108,25 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# CORS middleware allowing Vite frontend dev server and production domains
-# NOTE: wildcard "*" is intentionally excluded — it cannot be combined with
-# allow_credentials=True and would cause browser CORS preflight failures.
-origins = [
+# CORS middleware allowing Vite frontend dev server and production domains.
+# Extra origins can be injected via the CORS_ORIGINS env var (comma-separated).
+_base_origins = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "http://localhost:3000",
     "http://127.0.0.1:3000",
     "https://expoair-airsense.vercel.app",
 ]
+_extra = os.getenv("CORS_ORIGINS", "")
+if _extra:
+    _base_origins.extend([o.strip() for o in _extra.split(",") if o.strip()])
+
+origins = list(dict.fromkeys(_base_origins))  # deduplicate, preserve order
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
+    allow_origin_regex=r"https://.*\.vercel\.app",  # cover all Vercel preview URLs
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],

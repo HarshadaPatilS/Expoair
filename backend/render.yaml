@@ -18,3 +18,7 @@ services:
         value: /etc/secrets/firebase_creds.json
       - key: PORT
         value: 8000
+      - key: OPENMETEO_BASE_URL
+        value: https://api.open-meteo.com/v1
+      - key: CORS_ORIGINS
+        value: https://expoair-airsense.vercel.app

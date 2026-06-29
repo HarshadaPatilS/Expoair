@@ -13,7 +13,9 @@ class WeatherService:
         # In-memory cache
         # Format: { "lat,lng": { "data": dict, "timestamp": float } }
         self._cache: Dict[str, Dict[str, Any]] = {}
-        self.cache_ttl = 7200  # 2 hours — avoids Open-Meteo rate limits on free hosting
+        # 2 h TTL — avoids Open-Meteo rate limits; also means first hit after cache
+        # expiry is the only network call (critical on Render free tier cold starts).
+        self.cache_ttl = 7200
 
     def _wind_direction_to_sector(self, degrees: float) -> str:
         """Converts 0-360 degrees to one of: N, NE, E, SE, S, SW, W, NW"""
@@ -44,7 +46,7 @@ class WeatherService:
         }
 
         try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
+            async with httpx.AsyncClient(timeout=8.0) as client:  # 8 s — keeps us inside Render's 30 s hard limit
                 response = await client.get(self.base_url, params=params)
                 if response.status_code == 429:
                     logger.warning("Open-Meteo rate limit hit (429). Using cached or fallback data.")
@@ -59,6 +61,12 @@ class WeatherService:
                     "timestamp": time.time()
                 }
                 return data
+        except httpx.TimeoutException as e:
+            logger.warning(f"Open-Meteo request timed out (8 s): {e}. Returning cached/empty data.")
+            if cached:
+                logger.info("Returning stale cached weather data due to timeout.")
+                return cached["data"]
+            return None
         except httpx.HTTPError as e:
             logger.error(f"HTTP error fetching weather data: {e}")
             if cached:
