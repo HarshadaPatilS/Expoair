@@ -86,7 +86,11 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning(f"Weather pre-warm task failed: {e}")
 
-    asyncio.create_task(_prewarm_weather())
+    async def _prewarm_with_delay():
+        await asyncio.sleep(3)  # Let the server fully bind first
+        await _prewarm_weather()
+
+    asyncio.create_task(_prewarm_with_delay())
 
     yield
     
