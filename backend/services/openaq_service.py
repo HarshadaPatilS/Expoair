@@ -58,10 +58,14 @@ class OpenAQService:
         {"name": "Lonavala", "lat": 18.7490, "lng": 73.4070, "radius": 15000},
     ]
 
+    # Class-level cache: shared across all instances so it actually persists
+    # between requests (FastAPI creates a new instance per request via Depends).
+    _cache: Dict[str, Dict[str, Any]] = {}
+    cache_ttl: int = 300  # 5 minutes
+
     def __init__(self):
         self.api_key: Optional[str] = os.getenv("OPENAQ_API_KEY")
-        self._cache: Dict[str, Dict[str, Any]] = {}
-        self.cache_ttl = 300  # 5 minutes
+
 
     # ── Cache helpers ───────────────────────────────────────────────────────
 

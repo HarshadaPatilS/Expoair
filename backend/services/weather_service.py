@@ -7,15 +7,16 @@ from datetime import datetime, timedelta
 logger = logging.getLogger(__name__)
 
 class WeatherService:
+    # Class-level cache shared across ALL instances (and therefore all requests).
+    # Instance-level cache is reset on every `WeatherService()` construction,
+    # which happens once per request via FastAPI dependency injection — making
+    # the cache completely useless. Class-level fixes this.
+    _cache: Dict[str, Dict[str, Any]] = {}
+    cache_ttl: int = 7200  # 2 h TTL — avoids Open-Meteo rate limits
+
     def __init__(self):
         self.base_url = "https://api.open-meteo.com/v1/forecast"
-        
-        # In-memory cache
-        # Format: { "lat,lng": { "data": dict, "timestamp": float } }
-        self._cache: Dict[str, Dict[str, Any]] = {}
-        # 2 h TTL — avoids Open-Meteo rate limits; also means first hit after cache
-        # expiry is the only network call (critical on Render free tier cold starts).
-        self.cache_ttl = 7200
+
 
     def _wind_direction_to_sector(self, degrees: float) -> str:
         """Converts 0-360 degrees to one of: N, NE, E, SE, S, SW, W, NW"""
